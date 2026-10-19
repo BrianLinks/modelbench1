@@ -29,7 +29,7 @@ precision_recall_f1(y_true, y_pred, average="macro")
 
 ```
 pip install -e ".[dev]"
-python -m unittest discover -s tests -t .
+python -m unittest discover -s tests
 ```
 
 Python 3.10 or newer. The package has no runtime dependencies.
