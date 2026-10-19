@@ -2,9 +2,26 @@
 
 Local experiment tracking and model comparison, with no online ML platform and no paid API.
 
-**Status: early development.** Implemented so far: the metrics module (`modelbench.metrics`).
-Dataset versioning, run tracking, baseline models, comparison, reproducibility checks, and the
-dashboard are planned and not built yet.
+**Status: early development.** Implemented so far:
+
+- `modelbench.metrics`: classification and regression metrics
+- `modelbench.ids`: strict dataset, experiment, run, and model identifiers
+- `modelbench.seeding`: SHA-256 derived sub-seeds and global seeding
+- `modelbench.environment`: environment fingerprints and drift comparison
+- `modelbench.datasets`: content-hash dataset versions, CSV reading, seeded and stratified splits
+- `modelbench.config`: validated experiment configs, config hashes, parameter grids
+
+Run tracking in SQLite, baseline models, run comparison, reproducibility checks, import/export, the
+CLI, and the dashboard are planned and not built yet.
+
+## Reproducibility notes
+
+- Sub-seeds come from SHA-256, never from Python's per-process `hash()`.
+- Splits use Python's seeded Mersenne Twister. Results can differ across Python or library
+  versions, so `environment_fingerprint()` records them and `compare_environments()` explains
+  differences.
+- Fix `PYTHONHASHSEED` before starting Python if anything depends on string-set ordering.
+- A dataset version covers content and row order, so reordering rows creates a new version.
 
 ## Metrics
 
