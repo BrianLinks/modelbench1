@@ -12,10 +12,34 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.config`: validated experiment configs, config hashes, parameter grids
 - `modelbench.store`: SQLite run store (datasets, runs, params, metric series, artifact metadata,
   tags) with migrations and a strict run lifecycle
+- `modelbench.models`: pure-Python classifiers behind one interface and a name registry:
+  `majority`, `stratified`, `knn`, `gaussian_nb`
 
-Baseline models, run comparison, reproducibility checks, import/export, the CLI, and the dashboard
-are planned and not built yet. The store has no recovery for runs left in `running` after a crash;
-that belongs with the reproducibility checker.
+Linear/logistic regression and a decision tree, run comparison, reproducibility checks,
+import/export, the CLI, and the dashboard are planned and not built yet. The store has no recovery
+for runs left in `running` after a crash; that belongs with the reproducibility checker.
+
+## Models
+
+All classifiers share `fit(X, y)`, `predict(X)`, and `predict_proba(X)`. Probability rows follow
+`classes_`, the sorted training labels, and ties always go to the first class in that order.
+
+| Name | Behaviour |
+|---|---|
+| `majority` | Most frequent training class; probabilities are the class priors |
+| `stratified` | Samples labels from the priors with a seeded generator; repeatable per `seed` |
+| `knn` | `k`, `metric` (euclidean, manhattan), `weights` (uniform, distance); equal distances rank by training-row position |
+| `gaussian_nb` | Per-class normal distributions per feature, log space, `var_smoothing` |
+
+```python
+from modelbench.models import create_model
+
+model = create_model("knn", k=3)
+model.fit([[0.0], [1.0], [10.0], [11.0]], ["a", "a", "b", "b"])
+model.predict([[0.5], [10.5]])  # ['a', 'b']
+```
+
+k-NN uses features as given, so scale them first if their units differ.
 
 ## Run store rules
 

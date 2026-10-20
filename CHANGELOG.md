@@ -12,6 +12,11 @@ All notable changes to this project are documented here.
 - Datasets: content-hash versions, strict CSV reader with path confinement, seeded splits.
 - Experiment configs: strict loading, canonical hash, deterministic parameter grids.
 - Run store: SQLite schema with migrations, run lifecycle, metric series, artifact metadata, tags.
+- Models: classifier interface with strict input validation and a name registry.
+- Baselines: majority class, seeded stratified random, k-NN, and Gaussian naive Bayes.
+
+### Changed
+- `metrics.ordered_labels` is now public so metrics and models share one label ordering.
 
 ### Fixed
 - Run store no longer leaks its SQLite connection when opening fails (for example when the
