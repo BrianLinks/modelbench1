@@ -7,9 +7,11 @@ from typing import Any
 from ..errors import ModelError
 from .base import Classifier
 from .majority import MajorityClassifier
+from .stratified import StratifiedClassifier
 
 REGISTRY: dict[str, type[Classifier]] = {
     MajorityClassifier.name: MajorityClassifier,
+    StratifiedClassifier.name: StratifiedClassifier,
 }
 
 
@@ -29,4 +31,11 @@ def create_model(name: str, **params: Any) -> Classifier:
         raise ModelError(f"invalid parameters for model {name!r}: {exc}") from exc
 
 
-__all__ = ["REGISTRY", "Classifier", "MajorityClassifier", "available_models", "create_model"]
+__all__ = [
+    "REGISTRY",
+    "Classifier",
+    "MajorityClassifier",
+    "StratifiedClassifier",
+    "available_models",
+    "create_model",
+]
