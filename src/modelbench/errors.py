@@ -26,3 +26,7 @@ class DatasetError(ModelBenchError, ValueError):
 
 class ConfigError(ModelBenchError, ValueError):
     """An experiment configuration is invalid."""
+
+
+class StoreError(ModelBenchError):
+    """The run store is unusable, a record is missing, or an operation breaks a store rule."""

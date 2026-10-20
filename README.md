@@ -10,9 +10,21 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.environment`: environment fingerprints and drift comparison
 - `modelbench.datasets`: content-hash dataset versions, CSV reading, seeded and stratified splits
 - `modelbench.config`: validated experiment configs, config hashes, parameter grids
+- `modelbench.store`: SQLite run store (datasets, runs, params, metric series, artifact metadata,
+  tags) with migrations and a strict run lifecycle
 
-Run tracking in SQLite, baseline models, run comparison, reproducibility checks, import/export, the
-CLI, and the dashboard are planned and not built yet.
+Baseline models, run comparison, reproducibility checks, import/export, the CLI, and the dashboard
+are planned and not built yet. The store has no recovery for runs left in `running` after a crash;
+that belongs with the reproducibility checker.
+
+## Run store rules
+
+- A run starts `running` and ends once as `completed` or `failed`. Only running runs accept
+  metrics, artifacts, and tags.
+- A metric is written once per (run, name, step). Rewriting history is an error, and a batch of
+  metrics is stored all-or-nothing.
+- Each run records its config hash, dataset version, seed, and environment fingerprint.
+- Artifact records hold metadata only (name, kind, SHA-256, size, optional path), not file contents.
 
 ## Reproducibility notes
 
