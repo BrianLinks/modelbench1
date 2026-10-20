@@ -72,8 +72,8 @@ class RegistryTests(unittest.TestCase):
             create_model("majority", k=3)
 
     def test_every_registered_model_follows_the_interface_contract(self):
-        X = [[0.0], [1.0], [2.0], [3.0]]
-        y = ["a", "a", "b", "b"]
+        X = [[float(i)] for i in range(8)]
+        y = ["a", "a", "a", "a", "b", "b", "b", "b"]
         for name in available_models():
             model = create_model(name)
             with self.assertRaises(ModelError, msg=name):  # not fitted
@@ -82,7 +82,7 @@ class RegistryTests(unittest.TestCase):
                 model.classes_
             model.fit(X, y)
             self.assertEqual(model.classes_, ("a", "b"), name)
-            self.assertEqual(len(model.predict(X)), 4, name)
+            self.assertEqual(len(model.predict(X)), 8, name)
             for row in model.predict_proba(X):
                 self.assertEqual(len(row), 2, name)
                 self.assertAlmostEqual(sum(row), 1.0, msg=name)

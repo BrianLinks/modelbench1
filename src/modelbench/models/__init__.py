@@ -6,12 +6,14 @@ from typing import Any
 
 from ..errors import ModelError
 from .base import Classifier
+from .knn import KNNClassifier
 from .majority import MajorityClassifier
 from .stratified import StratifiedClassifier
 
 REGISTRY: dict[str, type[Classifier]] = {
     MajorityClassifier.name: MajorityClassifier,
     StratifiedClassifier.name: StratifiedClassifier,
+    KNNClassifier.name: KNNClassifier,
 }
 
 
@@ -34,6 +36,7 @@ def create_model(name: str, **params: Any) -> Classifier:
 __all__ = [
     "REGISTRY",
     "Classifier",
+    "KNNClassifier",
     "MajorityClassifier",
     "StratifiedClassifier",
     "available_models",
