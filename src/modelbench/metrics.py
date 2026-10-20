@@ -56,7 +56,7 @@ def _check_pair(y_true: Sequence[Any], y_pred: Sequence[Any]) -> None:
         raise MetricError("inputs must not be empty")
 
 
-def _ordered_labels(*sequences: Sequence[Label]) -> tuple[Label, ...]:
+def ordered_labels(*sequences: Sequence[Label]) -> tuple[Label, ...]:
     seen: dict[Label, None] = {}
     for seq in sequences:
         for value in seq:
@@ -71,7 +71,7 @@ def _resolve_labels(
     y_true: Sequence[Label], y_pred: Sequence[Label], labels: Sequence[Label] | None
 ) -> tuple[Label, ...]:
     if labels is None:
-        return _ordered_labels(y_true, y_pred)
+        return ordered_labels(y_true, y_pred)
     resolved = tuple(labels)
     if len(set(resolved)) != len(resolved):
         raise MetricError("labels must be unique")
@@ -227,7 +227,7 @@ def log_loss(
     _check_pair(y_true, y_prob)
     if not 0 < eps < 0.5:
         raise MetricError("eps must be in (0, 0.5)")
-    resolved = tuple(labels) if labels is not None else _ordered_labels(y_true)
+    resolved = tuple(labels) if labels is not None else ordered_labels(y_true)
     if len(set(resolved)) != len(resolved):
         raise MetricError("labels must be unique")
     index = {label: i for i, label in enumerate(resolved)}

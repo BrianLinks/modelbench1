@@ -28,5 +28,9 @@ class ConfigError(ModelBenchError, ValueError):
     """An experiment configuration is invalid."""
 
 
+class ModelError(ModelBenchError, ValueError):
+    """A model received invalid parameters or data, or was used before being fitted."""
+
+
 class StoreError(ModelBenchError):
     """The run store is unusable, a record is missing, or an operation breaks a store rule."""
