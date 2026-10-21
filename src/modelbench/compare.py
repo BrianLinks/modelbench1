@@ -118,8 +118,23 @@ def _check_metric_values(values: Mapping[str, float], where: str) -> None:
             raise CompareError(f"{where}[{name!r}] must be finite, got {value!r}")
 
 
-def compare_metrics(old: Mapping[str, float], new: Mapping[str, float]) -> MetricComparison:
-    """Per-metric change from `old` to `new` for metrics present in both, sorted by name."""
+def resolve_direction(metric: str, directions: Mapping[str, bool] | None) -> bool:
+    """An explicit direction if one was given for this metric, else the built-in table."""
+    if directions is not None and metric in directions:
+        return directions[metric]
+    return higher_is_better(metric)
+
+
+def compare_metrics(
+    old: Mapping[str, float],
+    new: Mapping[str, float],
+    directions: Mapping[str, bool] | None = None,
+) -> MetricComparison:
+    """Per-metric change from `old` to `new` for metrics present in both, sorted by name.
+
+    `directions` maps a metric name to True (higher is better) or False, and takes priority over
+    the built-in table; metrics with no known direction get `improved=None`.
+    """
     _check_metric_values(old, "old")
     _check_metric_values(new, "new")
     deltas: list[MetricDelta] = []
@@ -127,7 +142,7 @@ def compare_metrics(old: Mapping[str, float], new: Mapping[str, float]) -> Metri
         before, after = float(old[name]), float(new[name])
         delta = after - before
         try:
-            better = higher_is_better(name)
+            better = resolve_direction(name, directions)
         except CompareError:
             improved = None
         else:

@@ -14,10 +14,45 @@ Local experiment tracking and model comparison, with no online ML platform and n
   tags) with migrations and a strict run lifecycle
 - `modelbench.models`: pure-Python classifiers behind one interface and a name registry:
   `majority`, `stratified`, `knn`, `gaussian_nb`
+- `modelbench.compare`: parameter diffs, metric deltas, ranking, and a paired bootstrap
+- `modelbench.run_comparison`: `compare_runs` over completed runs in the store
 
-Linear/logistic regression and a decision tree, run comparison, reproducibility checks,
+Linear/logistic regression and a decision tree, an experiment runner, reproducibility checks,
 import/export, the CLI, and the dashboard are planned and not built yet. The store has no recovery
 for runs left in `running` after a crash; that belongs with the reproducibility checker.
+
+## Comparing runs
+
+`compare_runs(store, [baseline_id, other_id, ...])` compares completed runs. For each run after
+the first it reports parameter differences, metric deltas against the baseline (with
+whether each change is an improvement), and whether the config, dataset version, seed, and
+environment match. It also ranks all runs per metric.
+
+- Ranking: exact ties share a rank and the next rank is skipped (1, 2, 2, 4).
+- Direction: accuracy, precision, recall, F1, ROC-AUC, and R² are higher-is-better; log loss, MAE,
+  MSE, and RMSE are lower-is-better. A metric name may carry a prefix such as `test/`. For any
+  other metric pass `directions={"name": True or False}`; without it the metric is compared but
+  not ranked, and a warning says so.
+- Comparing runs on different dataset versions produces a warning, not an error.
+
+### Paired bootstrap
+
+`paired_bootstrap(scores_a, scores_b, seed=...)` gives a percentile confidence interval for the
+mean per-example difference between two models scored on the same examples.
+
+```python
+from modelbench.compare import paired_bootstrap
+
+a = [1] * 90 + [0] * 10   # model A is right on 90 of 100 examples
+b = [1] * 70 + [0] * 30   # model B is right on 70 of the same 100
+result = paired_bootstrap(a, b, seed=3)
+result.mean_diff           # 0.2
+result.ci_low > 0          # True: the 95% interval excludes zero
+```
+
+It works on per-example scores where higher is better: 0/1 correctness for accuracy, or negated
+errors for MAE/RMSE-style comparisons. It cannot give an interval for metrics that are not
+averages over examples, such as F1 or ROC-AUC. The result is repeatable for a given seed.
 
 ## Models
 

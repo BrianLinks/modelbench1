@@ -14,6 +14,10 @@ All notable changes to this project are documented here.
 - Run store: SQLite schema with migrations, run lifecycle, metric series, artifact metadata, tags.
 - Models: classifier interface with strict input validation and a name registry.
 - Baselines: majority class, seeded stratified random, k-NN, and Gaussian naive Bayes.
+- Comparison: parameter diffs, metric deltas with direction, competition ranking, and a seeded
+  paired bootstrap for per-example score differences.
+- `compare_runs`: baseline-relative comparison of completed runs with config, dataset, seed, and
+  environment differences, per-metric rankings, and a JSON-serialisable result.
 
 ### Changed
 - `metrics.ordered_labels` is now public so metrics and models share one label ordering.
