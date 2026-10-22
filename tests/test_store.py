@@ -62,7 +62,8 @@ class MigrationTests(StoreTestCase):
             for r in self.store._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
         self.assertTrue(
-            {"datasets", "experiments", "runs", "params", "metrics", "artifacts", "tags"} <= names
+            {"datasets", "experiments", "runs", "params", "metrics", "artifacts", "tags", "notes"}
+            <= names
         )
 
     def test_foreign_keys_are_enforced(self):
@@ -400,6 +401,76 @@ class QueryTests(StoreTestCase):
         other_hash = make_config(params={"k": 9}).config_hash()
         self.assertEqual(self.store.find_runs_by_config(other_hash), [c])
         self.assertEqual(self.store.find_runs_by_config("f" * 64), [])
+
+
+class NoteTests(StoreTestCase):
+    def test_notes_keep_order_and_timestamps(self):
+        run_id = self.new_run()
+        self.store.add_note(run_id, "first")
+        self.store.add_note(run_id, "second\nwith a second line")
+        notes = self.store.get_notes(run_id)
+        self.assertEqual([n.text for n in notes], ["first", "second\nwith a second line"])
+        self.assertEqual(notes[0].created_at, "2026-01-01T00:00:00Z")
+
+    def test_notes_can_be_added_in_every_status(self):
+        running = self.new_run()
+        done = self.new_run()
+        self.store.finish_run(done)
+        failed = self.new_run()
+        self.store.fail_run(failed, "boom")
+        for run_id in (running, done, failed):
+            self.store.add_note(run_id, "after the fact")
+            self.assertEqual(len(self.store.get_notes(run_id)), 1)
+
+    def test_notes_belong_to_their_run(self):
+        a, b = self.new_run(), self.new_run()
+        self.store.add_note(a, "only a")
+        self.assertEqual(self.store.get_notes(b), [])
+
+    def test_note_validation(self):
+        run_id = self.new_run()
+        for bad in ("", "   \n", None, 5, "x" * 10_001):
+            with self.subTest(bad=bad), self.assertRaises(StoreError):
+                self.store.add_note(run_id, bad)
+        self.assertEqual(self.store.get_notes(run_id), [])
+        self.store.add_note(run_id, "x" * 10_000)
+
+    def test_unknown_run(self):
+        with self.assertRaises(StoreError):
+            self.store.add_note("run-000042", "hello")
+        with self.assertRaises(StoreError):
+            self.store.get_notes("run-000042")
+
+    def test_database_from_before_notes_is_upgraded_and_keeps_its_data(self):
+        old = Path(self._tmp.name) / "old.db"
+        conn = sqlite3.connect(old)
+        conn.executescript(f"BEGIN;{MIGRATIONS[0]}PRAGMA user_version = 1;COMMIT;")
+        conn.close()
+        with Store(old, clock=lambda: "2026-01-01T00:00:00Z") as store:
+            self.assertEqual(store.schema_version, len(MIGRATIONS))
+        # Rewind to version 1 with data in every older table, then upgrade again.
+        conn = sqlite3.connect(old)
+        conn.execute("DROP TABLE notes")
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+        conn.close()
+        with Store(old, clock=lambda: "2026-01-01T00:00:00Z") as store:
+            run_id = store.create_run(make_config(), DATASET, ENV)
+            store.set_tag(run_id, "stage", "baseline")
+            store.log_metric(run_id, "accuracy", 0.5)
+            store.add_artifact(run_id, "weights", "model", SHA, 3)
+        conn = sqlite3.connect(old)
+        conn.execute("DROP TABLE notes")
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+        conn.close()
+        with Store(old) as store:
+            self.assertEqual(store.schema_version, len(MIGRATIONS))
+            self.assertEqual(store.get_run(run_id).tags, {"stage": "baseline"})
+            self.assertEqual(store.final_metrics(run_id), {"accuracy": 0.5})
+            self.assertEqual(len(store.get_artifacts(run_id)), 1)
+            store.add_note(run_id, "works after upgrade")
+            self.assertEqual([n.text for n in store.get_notes(run_id)], ["works after upgrade"])
 
 
 class ScaleAndIntegrityTests(unittest.TestCase):

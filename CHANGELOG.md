@@ -24,6 +24,9 @@ All notable changes to this project are documented here.
 - `check_reproducibility`: re-runs a stored run in a scratch store and reports whether the
   predictions hash and metrics (within a tolerance) match, with environment drift listed.
 - `recover_stale_runs` and `Store.stale_running`: close runs a crash left in `running`.
+- Run notes (`Store.add_note`, `get_notes`) with a schema migration that keeps existing data.
+- Export: `export_json` (`modelbench-runs` version 1), `export_metrics_csv`, and
+  `write_text_atomic`.
 
 ### Changed
 - `metrics.ordered_labels` is now public so metrics and models share one label ordering.

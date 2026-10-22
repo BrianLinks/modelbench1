@@ -47,3 +47,6 @@ class StoreError(ModelBenchError):
 class ReproError(ModelBenchError, ValueError):
     """A run cannot be checked for reproducibility, or the check arguments are invalid."""
 
+
+class ExportError(ModelBenchError, ValueError):
+    """Nothing to export, duplicate run ids, or the output cannot be written."""

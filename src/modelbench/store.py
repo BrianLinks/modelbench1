@@ -88,6 +88,15 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (run_id, key)
     );
     """,
+    """
+    CREATE TABLE notes (
+        seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id     TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        text       TEXT NOT NULL
+    );
+    CREATE INDEX idx_notes_run ON notes(run_id);
+    """,
 ]
 
 STATUSES = ("running", "completed", "failed")
@@ -96,6 +105,7 @@ _IN_CHUNK = 400
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-/]{0,63}")
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _MAX_TEXT = 2000
+_MAX_NOTE = 10_000
 _TIMESTAMP_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 
 
@@ -134,6 +144,12 @@ class ArtifactRecord:
     sha256: str
     size_bytes: int
     path: str | None
+
+
+@dataclass(frozen=True)
+class NoteRecord:
+    created_at: str
+    text: str
 
 
 def _check_name(kind: str, value: object) -> str:
@@ -506,6 +522,25 @@ class Store:
             ArtifactRecord(r["name"], r["kind"], r["sha256"], r["size_bytes"], r["path"])
             for r in rows
         ]
+
+    def add_note(self, run_id: str, text: str) -> None:
+        """Attach a free-text note to a run in any status. Notes are append-only."""
+        self._run_row(run_id)
+        if not isinstance(text, str) or text.strip() == "" or len(text) > _MAX_NOTE:
+            raise StoreError(f"a note must be non-empty text of at most {_MAX_NOTE} characters")
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO notes (run_id, created_at, text) VALUES (?, ?, ?)",
+                (run_id, self._clock(), text),
+            )
+
+    def get_notes(self, run_id: str) -> list[NoteRecord]:
+        """Notes in the order they were added."""
+        self._run_row(run_id)
+        rows = self._conn.execute(
+            "SELECT created_at, text FROM notes WHERE run_id = ? ORDER BY seq", (run_id,)
+        )
+        return [NoteRecord(r["created_at"], r["text"]) for r in rows]
 
     def set_tag(self, run_id: str, key: str, value: str) -> None:
         """Set or replace a tag on a running run."""

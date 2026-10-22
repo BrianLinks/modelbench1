@@ -20,9 +20,10 @@ Local experiment tracking and model comparison, with no online ML platform and n
   the run
 - `modelbench.reproducibility`: re-run a stored run and compare it, and close runs a crash left
   in `running`
+- `modelbench.export`: export runs as JSON or a metrics CSV, written atomically
 
-Linear/logistic regression and a decision tree, import/export, the CLI, and the dashboard are
-planned and not built yet.
+Linear/logistic regression and a decision tree, import, the CLI, and the dashboard are planned
+and not built yet.
 
 ## Running an experiment
 
@@ -91,6 +92,29 @@ in-memory store, so the check never adds to your run history.
 `recover_stale_runs` marks runs still `running` after `older_than_seconds` as failed with an
 explanatory error. It cannot tell a crashed run from a slow one, so choose a cutoff longer than
 your longest run. Timestamps have one-second resolution and the cutoff is exclusive.
+
+## Notes and export
+
+```python
+from modelbench.export import export_json, export_metrics_csv, write_text_atomic
+
+store.add_note(run_id, "baseline for the k sweep")   # allowed in any run status
+write_text_atomic("runs.json", export_json(store, [run_id]))
+export_metrics_csv(store, [run_id])
+# run_id,experiment_id,metric,step,value
+# run-000001,demo,accuracy,0,1.0
+```
+
+- Notes are free text (up to 10,000 characters), append-only, and can be added to running,
+  completed, and failed runs. Tags stay system-managed and can only be set while a run is running.
+- `export_json` writes `{"format": "modelbench-runs", "version": 1, "runs": [...]}` with sorted
+  keys. Each run holds its config and hash, dataset version, environment, status and error, every
+  metric point, artifact metadata, tags, and notes, so another tool can read it without the
+  database. Runs appear in the order you pass them; an empty list or a repeated id is an error.
+- `export_metrics_csv` writes one row per metric point with exact float values.
+- `write_text_atomic` writes through a temporary file and replaces the target, so a failure keeps
+  the old file. The file is created owner-readable only (mode 0600).
+- Importing a document back into a store is not built yet.
 
 ## Comparing runs
 
