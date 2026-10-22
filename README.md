@@ -16,10 +16,50 @@ Local experiment tracking and model comparison, with no online ML platform and n
   `majority`, `stratified`, `knn`, `gaussian_nb`
 - `modelbench.compare`: parameter diffs, metric deltas, ranking, and a paired bootstrap
 - `modelbench.run_comparison`: `compare_runs` over completed runs in the store
+- `modelbench.runner`: `run_experiment` splits a dataset, fits a model, scores it, and records
+  the run
 
-Linear/logistic regression and a decision tree, an experiment runner, reproducibility checks,
-import/export, the CLI, and the dashboard are planned and not built yet. The store has no recovery
-for runs left in `running` after a crash; that belongs with the reproducibility checker.
+Linear/logistic regression and a decision tree, reproducibility checks, import/export, the CLI,
+and the dashboard are planned and not built yet. The store has no recovery for runs left in
+`running` after a crash; that belongs with the reproducibility checker.
+
+## Running an experiment
+
+```python
+from modelbench.config import ExperimentConfig
+from modelbench.datasets import Table
+from modelbench.runner import run_experiment
+from modelbench.store import Store
+
+table = Table(("x", "label"), tuple((str(i), "a" if i < 10 else "b") for i in range(20)))
+config = ExperimentConfig(
+    "demo", "knn", seed=1, dataset_id="demo-data", metrics=("accuracy", "f1"), params={"k": 3}
+)
+with Store("runs.db") as store:
+    result = run_experiment(store, config, table, "label")
+    result.metrics   # {'accuracy': 1.0, 'f1': 1.0}
+```
+
+What it does and records:
+
+- Features are every column except the label, or only the columns you pass as
+  `feature_columns`. Every feature cell must be a plain ASCII number, so `1_000`, `nan`, and
+  non-ASCII digits are rejected with the row and column.
+- The split, the model's random seed (derived from the experiment seed unless you set one in
+  `params`), and the data all come from the config, so the same inputs give the same run.
+- Metrics, the train and test sizes, and a SHA-256 of the test indices, true labels, and
+  predictions are stored. Pass `artifact_dir` to also write the predictions as JSON, with the file
+  recorded as an artifact.
+- Input is validated before any run is created, including metrics the data cannot support
+  (ROC-AUC needs exactly two classes in both splits; log loss needs every test label seen in
+  training). Regression metrics are rejected because only classifiers exist so far.
+- A failure after the run starts marks it `failed` with the error and re-raises. A hard
+  interruption (Ctrl-C, a killed process) leaves it `running`.
+- `reuse_existing=True` returns an earlier completed run of the same experiment, settings, and
+  dataset version instead of running again.
+
+Precision, recall, and F1 are macro-averaged over every label in the test split's true or
+predicted values. ROC-AUC treats the second label in sorted order as positive.
 
 ## Comparing runs
 

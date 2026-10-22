@@ -36,5 +36,9 @@ class CompareError(ModelBenchError, ValueError):
     """Runs or scores cannot be compared, or comparison arguments are invalid."""
 
 
+class RunnerError(ModelBenchError, ValueError):
+    """An experiment cannot run as specified: unsupported metric, bad columns, or bad data."""
+
+
 class StoreError(ModelBenchError):
     """The run store is unusable, a record is missing, or an operation breaks a store rule."""

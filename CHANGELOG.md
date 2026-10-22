@@ -18,6 +18,9 @@ All notable changes to this project are documented here.
   paired bootstrap for per-example score differences.
 - `compare_runs`: baseline-relative comparison of completed runs with config, dataset, seed, and
   environment differences, per-metric rankings, and a JSON-serialisable result.
+- `run_experiment`: seeded split, fit, scoring, and recording of a classification run, with
+  validation before any run is created, failure recording, optional predictions artifact, and
+  reuse of identical completed runs.
 
 ### Changed
 - `metrics.ordered_labels` is now public so metrics and models share one label ordering.
