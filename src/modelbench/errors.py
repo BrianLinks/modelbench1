@@ -42,3 +42,8 @@ class RunnerError(ModelBenchError, ValueError):
 
 class StoreError(ModelBenchError):
     """The run store is unusable, a record is missing, or an operation breaks a store rule."""
+
+
+class ReproError(ModelBenchError, ValueError):
+    """A run cannot be checked for reproducibility, or the check arguments are invalid."""
+

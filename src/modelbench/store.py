@@ -96,6 +96,7 @@ _IN_CHUNK = 400
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-/]{0,63}")
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _MAX_TEXT = 2000
+_TIMESTAMP_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 
 
 def utc_now() -> str:
@@ -359,6 +360,20 @@ class Store:
             sql += " AND dataset_version = ?"
             args.append(dataset_version)
         return [r["run_id"] for r in self._conn.execute(sql + " ORDER BY seq", args)]
+
+    def stale_running(self, started_before: str) -> list[str]:
+        """Ids of runs still `running` that started strictly before `started_before`.
+
+        `started_before` is a UTC timestamp in the store's own format (`2026-01-31T12:00:00Z`).
+        Oldest first.
+        """
+        if not isinstance(started_before, str) or not _TIMESTAMP_RE.fullmatch(started_before):
+            raise StoreError("started_before must look like 2026-01-31T12:00:00Z")
+        rows = self._conn.execute(
+            "SELECT run_id FROM runs WHERE status = 'running' AND started_at < ? ORDER BY seq",
+            (started_before,),
+        )
+        return [r["run_id"] for r in rows]
 
     def _hydrate(self, rows: Sequence[sqlite3.Row]) -> list[RunRecord]:
         ids = [r["run_id"] for r in rows]

@@ -18,10 +18,11 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.run_comparison`: `compare_runs` over completed runs in the store
 - `modelbench.runner`: `run_experiment` splits a dataset, fits a model, scores it, and records
   the run
+- `modelbench.reproducibility`: re-run a stored run and compare it, and close runs a crash left
+  in `running`
 
-Linear/logistic regression and a decision tree, reproducibility checks, import/export, the CLI,
-and the dashboard are planned and not built yet. The store has no recovery for runs left in
-`running` after a crash; that belongs with the reproducibility checker.
+Linear/logistic regression and a decision tree, import/export, the CLI, and the dashboard are
+planned and not built yet.
 
 ## Running an experiment
 
@@ -60,6 +61,36 @@ What it does and records:
 
 Precision, recall, and F1 are macro-averaged over every label in the test split's true or
 predicted values. ROC-AUC treats the second label in sorted order as positive.
+
+## Checking reproducibility
+
+```python
+from modelbench.reproducibility import check_reproducibility, recover_stale_runs
+
+report = check_reproducibility(store, run_id, table, "label", tolerance=1e-9)
+report.verdict                    # 'reproduced'
+report.explained_by_environment   # False
+recover_stale_runs(store, older_than_seconds=3600)   # ids of runs it closed
+```
+
+`check_reproducibility` re-runs the run's stored config on the data you pass, in a scratch
+in-memory store, so the check never adds to your run history.
+
+- `reproduced`: the predictions hash is identical and every stored metric is within `tolerance`
+  (absolute, inclusive; default 0). Different predictions are never reproduced, even when the
+  metrics agree.
+- `not_reproduced`: something differs. `environment_differences` lists changed Python, platform,
+  and library versions with what each can affect, and `explained_by_environment` is true when
+  there is a mismatch and at least one such difference. It says the drift is a candidate cause,
+  not a proven one.
+- `dataset_changed`: the data is not the dataset version the run used, so nothing is re-run.
+- `rerun_failed`: the re-run raised a ModelBench error, which is reported in `detail`.
+- Only completed runs that recorded a predictions hash can be checked; anything else raises
+  `ReproError`. Pass the same `feature_columns` the original run used.
+
+`recover_stale_runs` marks runs still `running` after `older_than_seconds` as failed with an
+explanatory error. It cannot tell a crashed run from a slow one, so choose a cutoff longer than
+your longest run. Timestamps have one-second resolution and the cutoff is exclusive.
 
 ## Comparing runs
 

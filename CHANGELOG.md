@@ -21,6 +21,9 @@ All notable changes to this project are documented here.
 - `run_experiment`: seeded split, fit, scoring, and recording of a classification run, with
   validation before any run is created, failure recording, optional predictions artifact, and
   reuse of identical completed runs.
+- `check_reproducibility`: re-runs a stored run in a scratch store and reports whether the
+  predictions hash and metrics (within a tolerance) match, with environment drift listed.
+- `recover_stale_runs` and `Store.stale_running`: close runs a crash left in `running`.
 
 ### Changed
 - `metrics.ordered_labels` is now public so metrics and models share one label ordering.
