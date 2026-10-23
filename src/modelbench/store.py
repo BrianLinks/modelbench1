@@ -194,8 +194,10 @@ class Store:
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA foreign_keys = ON")
             self._migrate()
-        except BaseException:
+        except BaseException as exc:
             self._conn.close()  # do not leak the connection when opening fails
+            if isinstance(exc, sqlite3.Error) and not isinstance(exc, StoreError):
+                raise StoreError(f"cannot use {path} as a run database: {exc}") from exc
             raise
 
     def close(self) -> None:

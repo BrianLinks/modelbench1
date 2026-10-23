@@ -21,9 +21,10 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.reproducibility`: re-run a stored run and compare it, and close runs a crash left
   in `running`
 - `modelbench.export`: export runs as JSON or a metrics CSV, written atomically
+- `modelbench.cli`: the `modelbench` command (also `python -m modelbench`)
 
-Linear/logistic regression and a decision tree, import, the CLI, and the dashboard are planned
-and not built yet.
+Linear/logistic regression and a decision tree, import, and the dashboard are planned and not
+built yet.
 
 ## Running an experiment
 
@@ -92,6 +93,61 @@ in-memory store, so the check never adds to your run history.
 `recover_stale_runs` marks runs still `running` after `older_than_seconds` as failed with an
 explanatory error. It cannot tell a crashed run from a slow one, so choose a cutoff longer than
 your longest run. Timestamps have one-second resolution and the cutoff is exclusive.
+
+## Command line
+
+```
+modelbench [--db runs.db] <command> ...
+```
+
+| Command | What it does |
+|---|---|
+| `run CONFIG.json --data F.csv --label COL` | run an experiment (`--features a,b`, `--artifact-dir D`, `--reuse`) |
+| `list` | runs, newest first (`--experiment`, `--status`, `--limit`) |
+| `show RUN` | one run in full: config, metrics, tags, files, notes |
+| `compare RUN RUN ...` | the first run is the baseline (`--metrics a,b`) |
+| `repro RUN --data F.csv --label COL` | re-run and check it reproduces (`--tolerance`) |
+| `note RUN TEXT` | attach a note |
+| `export RUN ... ` | JSON, or `--format csv`; `-o FILE` writes atomically |
+| `recover --older-than SECONDS` | mark long-running unfinished runs as failed |
+| `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version |
+| `models` | list the available models |
+
+`run`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
+defaults to `modelbench.db`; only `run` creates it, and every other command reports a missing
+database instead of making an empty one. A config file is the JSON form of an experiment:
+
+```json
+{"experiment_id": "demo", "model": "knn", "seed": 7, "dataset_id": "blobs",
+ "metrics": ["accuracy", "f1"], "params": {"k": 3}}
+```
+
+A session on two clusters of 20 points:
+
+```
+$ modelbench run knn.json --data blobs.csv --label label
+run-000001
+train 32  test 8
+accuracy  1.0000
+f1  1.0000
+$ modelbench run majority.json --data blobs.csv --label label
+$ modelbench compare run-000001 run-000002
+baseline run-000001
+
+RUN         accuracy  f1
+run-000001  1.0000    1.0000
+run-000002  0.3750    0.2727
+rank accuracy: 1. run-000001 (1.0000), 2. run-000002 (0.3750)
+...
+$ modelbench repro run-000001 --data blobs.csv --label label
+run-000001: reproduced
+```
+
+Exit codes: 0 on success; 1 when `repro` finds the run is not reproduced (a result, not an
+error); 2 for bad arguments or any error, with one `error: ...` line on stderr. Text taken from
+the database (notes, error messages) is printed with control characters escaped, so a stored
+note cannot send terminal escape sequences. Ctrl-C during `run` leaves the run `running`;
+`recover` closes it later.
 
 ## Notes and export
 

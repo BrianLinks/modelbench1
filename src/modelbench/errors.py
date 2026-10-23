@@ -50,3 +50,7 @@ class ReproError(ModelBenchError, ValueError):
 
 class ExportError(ModelBenchError, ValueError):
     """Nothing to export, duplicate run ids, or the output cannot be written."""
+
+
+class CliError(ModelBenchError, ValueError):
+    """A command-line argument is unusable or the database it names does not exist."""

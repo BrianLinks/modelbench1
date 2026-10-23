@@ -27,10 +27,14 @@ All notable changes to this project are documented here.
 - Run notes (`Store.add_note`, `get_notes`) with a schema migration that keeps existing data.
 - Export: `export_json` (`modelbench-runs` version 1), `export_metrics_csv`, and
   `write_text_atomic`.
+- Command line: `run`, `list`, `show`, `compare`, `repro`, `note`, `export`, `recover`,
+  `dataset`, and `models`, with `--json` output and `python -m modelbench`.
 
 ### Changed
 - `metrics.ordered_labels` is now public so metrics and models share one label ordering.
 
 ### Fixed
+- Opening a file that is not a SQLite database now raises `StoreError` instead of a raw
+  `sqlite3.DatabaseError`.
 - Run store no longer leaks its SQLite connection when opening fails (for example when the
   database was written by a newer version).

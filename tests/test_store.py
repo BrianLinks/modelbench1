@@ -78,6 +78,12 @@ class MigrationTests(StoreTestCase):
         with self.assertRaises(StoreError):
             Store(future)
 
+    def test_file_that_is_not_a_database_raises_store_error(self):
+        junk = Path(self._tmp.name) / "junk.db"
+        junk.write_text("this is plain text, not an SQLite database " * 4)
+        with self.assertRaisesRegex(StoreError, "junk.db"):
+            Store(junk)
+
     def test_connection_is_closed_when_opening_fails(self):
         class Recording(sqlite3.Connection):
             instances = []
