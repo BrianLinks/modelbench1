@@ -54,3 +54,8 @@ class ExportError(ModelBenchError, ValueError):
 
 class CliError(ModelBenchError, ValueError):
     """A command-line argument is unusable or the database it names does not exist."""
+
+
+class DashboardError(ModelBenchError, ValueError):
+    """A dashboard request is malformed, or the server cannot be started as asked."""
+

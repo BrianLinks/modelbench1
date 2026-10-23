@@ -27,6 +27,9 @@ All notable changes to this project are documented here.
 - Run notes (`Store.add_note`, `get_notes`) with a schema migration that keeps existing data.
 - Export: `export_json` (`modelbench-runs` version 1), `export_metrics_csv`, and
   `write_text_atomic`.
+- Dashboard: `modelbench serve` runs a read-only local web dashboard (run list, run detail with
+  charts, comparison, JSON API) with a loopback-only default, Host-header check, and a strict
+  Content-Security-Policy. `Store(read_only=True)` opens a database that SQLite will not write.
 - Command line: `run`, `list`, `show`, `compare`, `repro`, `note`, `export`, `recover`,
   `dataset`, and `models`, with `--json` output and `python -m modelbench`.
 

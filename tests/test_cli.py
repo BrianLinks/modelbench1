@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from modelbench.cli import _safe, build_parser, main
-from modelbench.store import Store
+from modelbench.store import MIGRATIONS, Store
 
 SRC = str(Path(__file__).resolve().parent.parent / "src")
 
@@ -323,6 +323,48 @@ class ReproNoteExportRecoverTests(CliTestCase):
         self.assertIn("failed", self.cli("show", run_id)[1])
 
 
+class ServeCommandTests(CliTestCase):
+    def test_serve_passes_its_options_through(self):
+        self.run_experiment()
+        with mock.patch("modelbench.cli.serve") as served:
+            code, out, err = self.cli("serve", "--port", "9001")
+            self.assertEqual((code, out, err), (0, "", ""))
+            served.assert_called_once_with(self.db, "127.0.0.1", 9001, allow_network=False)
+            served.reset_mock()
+            self.cli("serve", "--host", "0.0.0.0", "--allow-network")
+            served.assert_called_once_with(self.db, "0.0.0.0", 8765, allow_network=True)
+
+    def test_serve_needs_an_existing_database_and_does_not_create_one(self):
+        code, out, err = self.cli("serve")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("no database", err)
+        self.assertFalse(Path(self.db).exists())
+
+    def test_serve_refuses_a_network_address_without_the_flag(self):
+        self.run_experiment()
+        code, out, err = self.cli("serve", "--host", "0.0.0.0", "--port", "0")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("no login", err)
+
+    def test_serve_rejects_a_bad_port(self):
+        self.run_experiment()
+        code, _, err = self.cli("serve", "--port", "70000")
+        self.assertEqual(code, 2)
+        self.assertIn("port", err)
+
+    def test_serve_does_not_upgrade_an_old_database(self):
+        old = self.dir / "old.db"
+        conn = sqlite3.connect(old)
+        conn.executescript(f"BEGIN;{MIGRATIONS[0]}PRAGMA user_version = 1;COMMIT;")
+        conn.close()
+        code, _, err = self.cli("--db", old, "serve", db=False)
+        self.assertEqual(code, 2)
+        self.assertIn("schema version", err)
+        check = sqlite3.connect(old)
+        self.addCleanup(check.close)
+        self.assertEqual(check.execute("PRAGMA user_version").fetchone()[0], 1)
+
+
 class ErrorHandlingTests(CliTestCase):
     def test_missing_database_is_not_created_by_read_commands(self):
         for args in (["list"], ["show", "run-000001"], ["compare", "run-000001"],
@@ -432,8 +474,9 @@ class SafeTextTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             with self.assertRaises(SystemExit):
                 parser.parse_args(["--help"])
-        for name in ("run", "list", "show", "compare", "repro", "note", "export", "recover"):
+        for name in ("run", "list", "show", "compare", "repro", "note", "export", "serve"):
             self.assertIn(name, out.getvalue())
+        self.assertIn("recover", out.getvalue())
 
 
 class EntryPointTests(unittest.TestCase):

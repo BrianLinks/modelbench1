@@ -479,6 +479,54 @@ class NoteTests(StoreTestCase):
             self.assertEqual([n.text for n in store.get_notes(run_id)], ["works after upgrade"])
 
 
+class ReadOnlyTests(StoreTestCase):
+    def open_read_only(self, path=None):
+        store = Store(path or self.path, read_only=True)
+        self.addCleanup(store.close)
+        return store
+
+    def test_reads_work_and_writes_are_refused_by_sqlite(self):
+        run_id = self.new_run()
+        self.store.log_metric(run_id, "accuracy", 0.5)
+        self.store.close()
+        ro = self.open_read_only()
+        self.assertEqual(ro.final_metrics(run_id), {"accuracy": 0.5})
+        self.assertEqual(ro.get_run(run_id).status, "running")
+        with self.assertRaises(sqlite3.OperationalError):
+            ro.log_metric(run_id, "loss", 1.0)
+        with self.assertRaises(sqlite3.OperationalError):
+            ro.add_note(run_id, "nope")
+        self.assertEqual(ro.final_metrics(run_id), {"accuracy": 0.5})
+
+    def test_does_not_create_a_missing_file(self):
+        missing = Path(self._tmp.name) / "missing.db"
+        with self.assertRaises(StoreError):
+            Store(missing, read_only=True)
+        self.assertFalse(missing.exists())
+
+    def test_database_at_an_older_schema_is_not_migrated(self):
+        old = Path(self._tmp.name) / "old.db"
+        conn = sqlite3.connect(old)
+        conn.executescript(f"BEGIN;{MIGRATIONS[0]}PRAGMA user_version = 1;COMMIT;")
+        conn.close()
+        with self.assertRaisesRegex(StoreError, "schema version 1"):
+            Store(old, read_only=True)
+        check = sqlite3.connect(old)
+        self.addCleanup(check.close)
+        self.assertEqual(check.execute("PRAGMA user_version").fetchone()[0], 1)
+
+    def test_not_a_database_and_path_with_special_characters(self):
+        junk = Path(self._tmp.name) / "junk.db"
+        junk.write_text("plain text, definitely not sqlite " * 5)
+        with self.assertRaises(StoreError):
+            Store(junk, read_only=True)
+        odd = Path(self._tmp.name) / "my runs #1 ?x=y.db"
+        with Store(odd) as writable:
+            writable.create_run(make_config(), DATASET, ENV)
+        ro = self.open_read_only(odd)
+        self.assertEqual(len(ro.list_runs()), 1)
+
+
 class ScaleAndIntegrityTests(unittest.TestCase):
     def test_listing_the_maximum_page_works_beyond_the_sql_variable_chunk_size(self):
         with Store(":memory:") as store:

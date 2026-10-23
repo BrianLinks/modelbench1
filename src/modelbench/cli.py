@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import ExperimentConfig
+from .dashboard import DEFAULT_PORT, serve
 from .datasets import make_version, read_csv
 from .errors import CliError, ModelBenchError
 from .export import export_json, export_metrics_csv, export_runs, write_text_atomic
@@ -287,6 +288,13 @@ def cmd_recover(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    if not Path(args.db).is_file():  # serving never creates or upgrades a database
+        raise CliError(f"no database at {args.db}; `modelbench run` creates one")
+    serve(args.db, args.host, args.port, allow_network=args.allow_network)
+    return 0
+
+
 # -- parser -----------------------------------------------------------------------------------
 
 
@@ -348,6 +356,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("run_ids", nargs="+")
     p.add_argument("--format", choices=("json", "csv"), default="json")
     p.add_argument("-o", "--output", help="write to a file instead of stdout")
+
+    p = add("serve", cmd_serve, "serve a read-only dashboard of the runs")
+    p.add_argument("--host", default="127.0.0.1", help="address to listen on (default loopback)")
+    p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="allow a non-loopback --host; the dashboard has no login",
+    )
 
     p = add("recover", cmd_recover, "mark long-running unfinished runs as failed")
     p.add_argument("--older-than", type=float, required=True, metavar="SECONDS")

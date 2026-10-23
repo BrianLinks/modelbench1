@@ -22,9 +22,9 @@ Local experiment tracking and model comparison, with no online ML platform and n
   in `running`
 - `modelbench.export`: export runs as JSON or a metrics CSV, written atomically
 - `modelbench.cli`: the `modelbench` command (also `python -m modelbench`)
+- `modelbench.dashboard`: a read-only local web dashboard (`modelbench serve`)
 
-Linear/logistic regression and a decision tree, import, and the dashboard are planned and not
-built yet.
+Linear/logistic regression and a decision tree and import are planned and not built yet.
 
 ## Running an experiment
 
@@ -109,6 +109,7 @@ modelbench [--db runs.db] <command> ...
 | `repro RUN --data F.csv --label COL` | re-run and check it reproduces (`--tolerance`) |
 | `note RUN TEXT` | attach a note |
 | `export RUN ... ` | JSON, or `--format csv`; `-o FILE` writes atomically |
+| `serve` | read-only dashboard at http://127.0.0.1:8765/ (`--port`, `--host`, `--allow-network`) |
 | `recover --older-than SECONDS` | mark long-running unfinished runs as failed |
 | `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version |
 | `models` | list the available models |
@@ -148,6 +149,33 @@ error); 2 for bad arguments or any error, with one `error: ...` line on stderr. 
 the database (notes, error messages) is printed with control characters escaped, so a stored
 note cannot send terminal escape sequences. Ctrl-C during `run` leaves the run `running`;
 `recover` closes it later.
+
+## Dashboard
+
+```
+modelbench --db runs.db serve            # http://127.0.0.1:8765/
+```
+
+Pages: the run list (filter by experiment and status, tick runs to compare), one run in full
+(metrics, a line chart for any metric logged over several steps, tags, files, environment,
+notes), and a comparison with a bar chart per metric, rankings, and parameter and environment
+differences. For the comparison page the oldest selected run is the baseline unless you pick
+another. JSON is available at `/api/runs`, `/api/run/<id>`, and `/api/compare?run=...` (there
+the first `run` is the baseline). The pages use no script and no outside resources, and work in
+light and dark mode.
+
+What it will and will not do:
+
+- It is read-only. The database is opened in SQLite's read-only mode, so a write is refused by
+  SQLite itself, and a database at an older schema is reported rather than upgraded. Only GET and
+  HEAD are accepted.
+- It listens on the loopback interface only. While it does, requests whose `Host` header names
+  anything else are answered with 403, which blocks DNS-rebinding attacks from a web page you
+  have open. `--host` with a non-loopback address is refused unless you add `--allow-network`,
+  because there is no login: anyone who can reach the port can read every run, note, and path.
+- Every value from the database or the URL is HTML-escaped, and the Content-Security-Policy
+  forbids scripts, remote loads, and framing.
+- Stop it with Ctrl-C.
 
 ## Notes and export
 

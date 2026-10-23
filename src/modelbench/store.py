@@ -184,16 +184,34 @@ def _check_step(step: object) -> int:
 class Store:
     """Wrapper over one SQLite database. Pass `clock` to make timestamps deterministic."""
 
-    def __init__(self, path: str | Path, clock: Callable[[], str] = utc_now) -> None:
+    def __init__(
+        self, path: str | Path, clock: Callable[[], str] = utc_now, *, read_only: bool = False
+    ) -> None:
+        """Open (and migrate) the database at `path`.
+
+        With `read_only=True` the file must already exist at the current schema version; it is
+        opened so that SQLite itself refuses every write, and nothing is migrated or created.
+        """
         self._clock = clock
         try:
-            self._conn = sqlite3.connect(str(path), timeout=5.0)
+            if read_only:
+                uri = Path(path).resolve().as_uri() + "?mode=ro"
+                self._conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+            else:
+                self._conn = sqlite3.connect(str(path), timeout=5.0)
         except sqlite3.Error as exc:
             raise StoreError(f"cannot open database {path}: {exc}") from exc
         try:
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA foreign_keys = ON")
-            self._migrate()
+            if read_only:
+                if self.schema_version != len(MIGRATIONS):
+                    raise StoreError(
+                        f"database {path} has schema version {self.schema_version}, "
+                        f"not {len(MIGRATIONS)}; open it with a writable command to upgrade it"
+                    )
+            else:
+                self._migrate()
         except BaseException as exc:
             self._conn.close()  # do not leak the connection when opening fails
             if isinstance(exc, sqlite3.Error) and not isinstance(exc, StoreError):
