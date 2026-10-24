@@ -381,6 +381,24 @@ python -m unittest discover -s tests
 
 Python 3.10 or newer. The package has no runtime dependencies.
 
+Without installing anything, run from the project folder. On Linux and macOS:
+
+```
+PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONPATH=src python3 -m modelbench demo
+```
+
+On Windows (PowerShell), where the command is `python` or `py`, not `python3`:
+
+```
+$env:PYTHONPATH = "src"
+python -m unittest discover -s tests
+python -m modelbench demo
+```
+
+The whole suite passes on Windows, Linux, and Python 3.11 to 3.13. To unzip on Windows use
+`Expand-Archive modelbench.zip .` in PowerShell.
+
 ## License
 
 MIT

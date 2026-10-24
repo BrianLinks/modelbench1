@@ -16,6 +16,7 @@ from __future__ import annotations
 import html
 import ipaddress
 import json
+import os
 import socket
 import sys
 from collections.abc import Sequence
@@ -502,11 +503,25 @@ def is_loopback_host(host: str) -> bool:
         return False
 
 
+def reuse_address_is_safe(system: str) -> bool:
+    """Whether SO_REUSEADDR may be set. On Windows it lets another process bind a port that is
+    already listening, so a second program could share this server's port; there the port is
+    claimed exclusively instead."""
+    return system != "nt"
+
+
 class _Server(ThreadingHTTPServer):
     daemon_threads = True
+    allow_reuse_address = reuse_address_is_safe(os.name)
     db_path: Path
     loopback_only: bool
     verbose: bool = False
+
+    def server_bind(self) -> None:
+        exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)  # exists on Windows only
+        if not reuse_address_is_safe(os.name) and exclusive is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, exclusive, 1)
+        super().server_bind()
 
 
 class _V6Server(_Server):

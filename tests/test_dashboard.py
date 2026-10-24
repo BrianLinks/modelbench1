@@ -2,10 +2,12 @@ import hashlib
 import http.client
 import io
 import json
+import os
 import re
 import socket
 import tempfile
 import threading
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -406,6 +408,29 @@ class ServerTests(DashboardTestCase):
         self.addCleanup(busy.server_close)
         with self.assertRaisesRegex(DashboardError, "cannot listen"):
             make_server(self.db, "127.0.0.1", busy.server_address[1])
+
+    def test_the_port_is_claimed_exclusively_on_windows_only(self):
+        self.assertIs(dashboard.reuse_address_is_safe("nt"), False)
+        for system in ("posix", "java", ""):
+            self.assertIs(dashboard.reuse_address_is_safe(system), True)
+        self.assertEqual(
+            dashboard._Server.allow_reuse_address, dashboard.reuse_address_is_safe(os.name)
+        )
+        for system, expected in (("nt", True), ("posix", False)):
+            calls = []
+            real = socket.socket.setsockopt
+
+            def spy(sock, level, option, value, *rest, calls=calls, real=real):
+                calls.append((level, option, value))
+                if option != 4242:  # the stand-in for SO_EXCLUSIVEADDRUSE is not a real option
+                    real(sock, level, option, value, *rest)
+
+            with mock.patch.object(dashboard, "os", types.SimpleNamespace(name=system)):
+                with mock.patch.object(socket, "SO_EXCLUSIVEADDRUSE", 4242, create=True):
+                    with mock.patch.object(socket.socket, "setsockopt", spy):
+                        server = make_server(self.db, "127.0.0.1", 0)
+            server.server_close()
+            self.assertEqual((socket.SOL_SOCKET, 4242, 1) in calls, expected, system)
 
     def test_serve_announces_and_closes_on_interrupt(self):
         out = io.StringIO()

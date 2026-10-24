@@ -441,7 +441,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _tolerate_unencodable_output() -> None:
+    """Print `?` for characters the console cannot encode instead of crashing (Windows
+    consoles often use a legacy code page, and notes may hold any text)."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _tolerate_unencodable_output()
     args = build_parser().parse_args(argv)
     try:
         code: int = args.func(args)

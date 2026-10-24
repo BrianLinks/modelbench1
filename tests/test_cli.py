@@ -423,6 +423,19 @@ class SampleAndDemoTests(CliTestCase):
         self.assertIn("dataset_changed", out)
 
 
+class ConsoleEncodingTests(CliTestCase):
+    def test_text_the_console_cannot_encode_is_replaced_not_fatal(self):
+        self.run_experiment()
+        self.cli("note", "run-000001", "checked \u2713 caf\u00e9")
+        console = io.TextIOWrapper(io.BytesIO(), encoding="ascii", write_through=True)
+        with mock.patch.object(sys, "stdout", console):
+            code = main(["--db", self.db, "show", "run-000001"])
+        self.assertEqual(code, 0)
+        written = console.buffer.getvalue()
+        self.assertIn(b"checked ? caf?", written)
+        self.assertNotIn(b"Traceback", written)
+
+
 class ServeCommandTests(CliTestCase):
     def test_serve_passes_its_options_through(self):
         self.run_experiment()

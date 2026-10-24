@@ -520,7 +520,7 @@ class ReadOnlyTests(StoreTestCase):
         junk.write_text("plain text, definitely not sqlite " * 5)
         with self.assertRaises(StoreError):
             Store(junk, read_only=True)
-        odd = Path(self._tmp.name) / "my runs #1 ?x=y.db"
+        odd = Path(self._tmp.name) / "my runs #1 %20 x=y&z.db"
         with Store(odd) as writable:
             writable.create_run(make_config(), DATASET, ENV)
         ro = self.open_read_only(odd)

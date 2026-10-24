@@ -41,6 +41,11 @@ All notable changes to this project are documented here.
 - `metrics.ordered_labels` is now public so metrics and models share one label ordering.
 
 ### Fixed
+- The dashboard now claims its port exclusively on Windows. Python's HTTP server sets
+  `SO_REUSEADDR`, which on Windows lets another process bind a port that is already listening.
+- Printing text the console cannot encode (for example a note containing a check mark on a
+  legacy Windows code page) no longer crashes the command line; unencodable characters print as
+  `?`.
 - Float overflow in any model (for example `gaussian_nb` with features near 1e300) raised a raw
   `OverflowError`; it is now a `ModelError`.
 - Opening a file that is not a SQLite database now raises `StoreError` instead of a raw
