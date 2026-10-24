@@ -25,6 +25,7 @@ from .models import available_models
 from .reproducibility import check_reproducibility, recover_stale_runs
 from .run_comparison import RunComparison, compare_runs
 from .runner import run_experiment
+from .samples import available_samples, generate, run_demo, table_to_csv
 from .store import STATUSES, Store
 
 DEFAULT_DB = "modelbench.db"
@@ -288,6 +289,60 @@ def cmd_recover(args: argparse.Namespace) -> int:
     return 0
 
 
+SAMPLE_OPTIONS = ("rows_per_class", "classes", "features", "separation", "spread", "noise")
+
+
+def cmd_sample(args: argparse.Namespace) -> int:
+    given = {k: getattr(args, k) for k in SAMPLE_OPTIONS if getattr(args, k) is not None}
+    table = generate(args.name, args.seed, **given)
+    text = table_to_csv(table)
+    if args.output:
+        write_text_atomic(args.output, text)
+        print(f"wrote {len(table)} rows to {args.output}")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+def cmd_demo(args: argparse.Namespace) -> int:
+    with Store(args.db) as store:
+        runs = run_demo(store, args.seed, args.rows_per_class)
+    if args.json:
+        print(
+            _json(
+                [
+                    {
+                        "dataset": r.dataset,
+                        "model": r.model,
+                        "params": dict(r.params),
+                        "run_id": r.result.run_id,
+                        "reused": r.result.reused,
+                        "metrics": r.result.metrics,
+                    }
+                    for r in runs
+                ]
+            )
+        )
+        return 0
+    rows = [("DATASET", "MODEL", "PARAMS", "ACCURACY", "F1", "RUN")]
+    for r in runs:
+        params = json.dumps(dict(r.params), sort_keys=True, separators=(",", ":"))
+        rows.append(
+            (
+                r.dataset,
+                r.model,
+                params if r.params else "-",
+                _fmt(r.result.metrics["accuracy"]),
+                _fmt(r.result.metrics["f1"]),
+                r.result.run_id,
+            )
+        )
+    print(_table(rows))
+    reused = sum(r.result.reused for r in runs)
+    print(f"{len(runs)} runs ({len(runs) - reused} new, {reused} reused) in {args.db}")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     if not Path(args.db).is_file():  # serving never creates or upgrades a database
         raise CliError(f"no database at {args.db}; `modelbench run` creates one")
@@ -356,6 +411,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("run_ids", nargs="+")
     p.add_argument("--format", choices=("json", "csv"), default="json")
     p.add_argument("-o", "--output", help="write to a file instead of stdout")
+
+    p = add("sample", cmd_sample, "write a seeded synthetic dataset as CSV")
+    p.add_argument("name", choices=available_samples())
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("-o", "--output", help="write to a file instead of stdout")
+    p.add_argument("--rows-per-class", dest="rows_per_class", type=int)
+    p.add_argument("--classes", type=int, help="blobs only")
+    p.add_argument("--features", type=int, help="blobs only")
+    p.add_argument("--separation", type=float, help="blobs only")
+    p.add_argument("--spread", type=float, help="blobs only")
+    p.add_argument("--noise", type=float, help="moons and xor only")
+
+    p = add("demo", cmd_demo, "run every model on three sample datasets", True)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--rows-per-class", dest="rows_per_class", type=int, default=100)
 
     p = add("serve", cmd_serve, "serve a read-only dashboard of the runs")
     p.add_argument("--host", default="127.0.0.1", help="address to listen on (default loopback)")

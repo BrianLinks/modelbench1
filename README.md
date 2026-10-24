@@ -23,6 +23,7 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.export`: export runs as JSON or a metrics CSV, written atomically
 - `modelbench.cli`: the `modelbench` command (also `python -m modelbench`)
 - `modelbench.dashboard`: a read-only local web dashboard (`modelbench serve`)
+- `modelbench.samples`: seeded synthetic datasets and a demo that fills a database with runs
 
 Linear regression (and regression metrics in the runner) and import are planned and not built
 yet.
@@ -110,6 +111,8 @@ modelbench [--db runs.db] <command> ...
 | `repro RUN --data F.csv --label COL` | re-run and check it reproduces (`--tolerance`) |
 | `note RUN TEXT` | attach a note |
 | `export RUN ... ` | JSON, or `--format csv`; `-o FILE` writes atomically |
+| `sample NAME` | write a seeded synthetic dataset as CSV (`--seed`, `-o FILE`, size and noise options) |
+| `demo` | run every model on three sample datasets and record the runs (`--seed`, `--rows-per-class`) |
 | `serve` | read-only dashboard at http://127.0.0.1:8765/ (`--port`, `--host`, `--allow-network`) |
 | `recover --older-than SECONDS` | mark long-running unfinished runs as failed |
 | `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version |
@@ -150,6 +153,52 @@ error); 2 for bad arguments or any error, with one `error: ...` line on stderr. 
 the database (notes, error messages) is printed with control characters escaped, so a stored
 note cannot send terminal escape sequences. Ctrl-C during `run` leaves the run `running`;
 `recover` closes it later.
+
+## Sample data and demo
+
+Three seeded generators produce string-labelled tables with no download and no network:
+
+| Name | What it is |
+|---|---|
+| `blobs` | Gaussian clusters, one per class (`c0`, `c1`, ...), any number of features |
+| `moons` | two interleaving half circles (`a`, `b`); a straight line cannot separate them |
+| `xor` | four clusters labelled by the sign of x1 times x2 (`neg`, `pos`); no straight line separates them either |
+
+```
+modelbench sample moons --seed 42 --rows-per-class 100 -o moons.csv
+modelbench --db demo.db demo --rows-per-class 30
+```
+
+```
+DATASET  MODEL                PARAMS            ACCURACY  F1      RUN
+moons    majority             -                 0.5000    0.3333  run-000001
+moons    gaussian_nb          -                 0.7500    0.7483  run-000002
+moons    logistic_regression  {"max_iter":300}  0.6667    0.6571  run-000003
+moons    knn                  {"k":1}           0.9167    0.9161  run-000004
+...
+xor      knn                  {"k":5}           1.0000    1.0000  run-000014
+...
+27 runs (27 new, 0 reused) in demo.db
+```
+
+`demo` runs a majority baseline, Gaussian naive Bayes, logistic regression, k-NN with k of 1, 5,
+and 15, and decision trees of depth 1, 3, and 6 on each dataset (27 runs). Run it again with the
+same arguments and nothing is added: identical runs are reused. Then `modelbench --db demo.db
+serve` shows the comparison. At 100 rows per class and seed 42, logistic regression stays under
+0.9 accuracy on `moons` and under 0.65 on `xor`, a one-level tree stays under 0.65 on `xor`, and
+k-NN with k of 5 scores 1.0 on `xor`: the datasets show where a linear model runs out.
+
+Every demo run can be checked. Generate the same data again and ask `repro`:
+
+```
+modelbench sample moons --seed 42 --rows-per-class 30 -o moons.csv
+modelbench --db demo.db repro run-000005 --data moons.csv --label label   # reproduced
+```
+
+Generated values are rounded to six decimals, so the last-digit differences that `sin` and
+`cos` can show between platforms cannot change a dataset's content hash. Pinned golden hashes in
+the tests, and the whole suite, pass on Python 3.11, 3.12, and 3.13. The demo is limited to 2000
+rows per class to stay quick, and `blobs` to 100,000 rows and 1,000,000 values.
 
 ## Dashboard
 

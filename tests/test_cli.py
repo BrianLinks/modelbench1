@@ -323,6 +323,106 @@ class ReproNoteExportRecoverTests(CliTestCase):
         self.assertIn("failed", self.cli("show", run_id)[1])
 
 
+class SampleAndDemoTests(CliTestCase):
+    def test_sample_writes_csv_to_stdout_or_a_file(self):
+        from modelbench.samples import generate, table_to_csv
+
+        args = ("sample", "moons", "--seed", "5", "--rows-per-class", "10")
+        code, out, err = self.cli(*args, db=False)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out, table_to_csv(generate("moons", 5, rows_per_class=10)))
+        target = self.dir / "moons.csv"
+        code, msg, _ = self.cli(
+            "sample", "moons", "--seed", "5", "--rows-per-class", "10", "-o", target, db=False
+        )
+        self.assertEqual((code, msg), (0, f"wrote 20 rows to {target}\n"))
+        self.assertEqual(target.read_text(), out)
+
+    def test_sample_options_reach_the_generator(self):
+        _, out, _ = self.cli("sample", "blobs", "--classes", "2", "--features", "3",
+                             "--rows-per-class", "4", "--separation", "10", "--spread", "0",
+                             db=False)  # fmt: skip
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "x1,x2,x3,label")
+        self.assertEqual(len(lines), 9)
+        self.assertEqual({line.split(",")[-1] for line in lines[1:]}, {"c0", "c1"})
+
+    def test_sample_rejects_options_the_dataset_does_not_take_and_unknown_names(self):
+        code, out, err = self.cli("sample", "moons", "--classes", "3", db=False)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("does not take", err)
+        code, _, err = self.cli("sample", "spirals", db=False)
+        self.assertEqual(code, 2)
+        code, _, err = self.cli("sample", "xor", "--noise", "nan", db=False)
+        self.assertEqual(code, 2)
+        self.assertIn("noise", err)
+        self.assertEqual(self.cli("sample", "xor", "--seed", "-1", db=False)[0], 2)
+
+    def test_demo_fills_the_database_and_is_idempotent(self):
+        code, out, err = self.cli("demo", "--rows-per-class", "30")
+        self.assertEqual((code, err), (0, ""))
+        lines = out.splitlines()
+        self.assertEqual(lines[0].split(), ["DATASET", "MODEL", "PARAMS", "ACCURACY", "F1", "RUN"])
+        self.assertEqual(len(lines), 29)  # header, 27 runs, summary
+        self.assertEqual(lines[-1], f"27 runs (27 new, 0 reused) in {self.db}")
+        self.assertIn('{"k":5}', out)
+        again = self.cli("demo", "--rows-per-class", "30")[1]
+        self.assertTrue(again.splitlines()[-1].startswith("27 runs (0 new, 27 reused)"))
+        records = json.loads(self.cli("list", "--limit", "100", "--json")[1])
+        self.assertEqual(len(records), 27)
+
+    def test_defaults_match_the_documentation(self):
+        parser = build_parser()
+        sample = parser.parse_args(["sample", "xor"])
+        self.assertEqual((sample.seed, sample.output, sample.rows_per_class), (42, None, None))
+        demo = parser.parse_args(["demo"])
+        self.assertEqual((demo.seed, demo.rows_per_class), (42, 100))
+        _, out, _ = self.cli("sample", "xor", "--rows-per-class", "5", db=False)
+        from modelbench.samples import generate, table_to_csv
+
+        self.assertEqual(out, table_to_csv(generate("xor", 42, rows_per_class=5)))
+
+    def test_demo_table_shows_a_dash_for_models_without_parameters(self):
+        out = self.cli("demo", "--rows-per-class", "30")[1]
+        majority = [line.split() for line in out.splitlines() if " majority " in line]
+        self.assertEqual(len(majority), 3)
+        self.assertTrue(all(cells[2] == "-" for cells in majority))
+        knn = [line.split() for line in out.splitlines() if " knn " in line]
+        self.assertEqual(len(knn), 9)
+        self.assertEqual({cells[2] for cells in knn}, {'{"k":1}', '{"k":5}', '{"k":15}'})
+
+    def test_demo_json_reports_which_runs_were_reused(self):
+        first = json.loads(self.cli("demo", "--rows-per-class", "30", "--json")[1])
+        second = json.loads(self.cli("demo", "--rows-per-class", "30", "--json")[1])
+        self.assertEqual({r["reused"] for r in first}, {False})
+        self.assertEqual({r["reused"] for r in second}, {True})
+
+    def test_demo_json_and_bad_arguments(self):
+        runs = json.loads(self.cli("demo", "--rows-per-class", "30", "--json")[1])
+        self.assertEqual(len(runs), 27)
+        self.assertEqual({r["dataset"] for r in runs}, {"moons", "xor", "blobs"})
+        self.assertTrue(all(0.0 <= r["metrics"]["accuracy"] <= 1.0 for r in runs))
+        code, _, err = self.cli("demo", "--rows-per-class", "5")
+        self.assertEqual(code, 2)
+        self.assertIn("rows_per_class", err)
+
+    def test_demo_runs_can_be_reproduced_from_a_regenerated_sample(self):
+        runs = json.loads(self.cli("demo", "--rows-per-class", "30", "--json")[1])
+        knn = next(r for r in runs if r["dataset"] == "moons" and r["params"] == {"k": 5})
+        csv_path = self.dir / "moons.csv"
+        self.cli("sample", "moons", "--seed", "42", "--rows-per-class", "30", "-o", csv_path,
+                 db=False)  # fmt: skip
+        code, out, err = self.cli("repro", knn["run_id"], "--data", csv_path, "--label", "label")
+        self.assertEqual((code, err), (0, ""), msg=out)
+        self.assertIn(f"{knn['run_id']}: reproduced", out)
+        other = self.dir / "other.csv"
+        self.cli("sample", "moons", "--seed", "43", "--rows-per-class", "30", "-o", other,
+                 db=False)  # fmt: skip
+        code, out, _ = self.cli("repro", knn["run_id"], "--data", other, "--label", "label")
+        self.assertEqual(code, 1)
+        self.assertIn("dataset_changed", out)
+
+
 class ServeCommandTests(CliTestCase):
     def test_serve_passes_its_options_through(self):
         self.run_experiment()
@@ -484,7 +584,8 @@ class SafeTextTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             with self.assertRaises(SystemExit):
                 parser.parse_args(["--help"])
-        for name in ("run", "list", "show", "compare", "repro", "note", "export", "serve"):
+        commands = ("run", "list", "show", "compare", "repro", "note", "export", "serve")
+        for name in (*commands, "sample", "demo"):
             self.assertIn(name, out.getvalue())
         self.assertIn("recover", out.getvalue())
 

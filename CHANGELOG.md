@@ -29,6 +29,8 @@ All notable changes to this project are documented here.
   `write_text_atomic`.
 - Models: `decision_tree` (CART, Gini) and `logistic_regression` (multinomial, L2, accelerated
   gradient descent with standardised features).
+- Samples: seeded `blobs`, `moons`, and `xor` generators, `run_demo` (27 runs, idempotent),
+  and the `sample` and `demo` commands.
 - Dashboard: `modelbench serve` runs a read-only local web dashboard (run list, run detail with
   charts, comparison, JSON API) with a loopback-only default, Host-header check, and a strict
   Content-Security-Policy. `Store(read_only=True)` opens a database that SQLite will not write.
