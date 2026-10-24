@@ -447,7 +447,17 @@ class ErrorHandlingTests(CliTestCase):
     def test_models_and_dataset_commands(self):
         code, out, _ = self.cli("models", db=False)
         self.assertEqual(code, 0)
-        self.assertEqual(out.split(), ["gaussian_nb", "knn", "majority", "stratified"])
+        self.assertEqual(
+            out.split(),
+            [
+                "decision_tree",
+                "gaussian_nb",
+                "knn",
+                "logistic_regression",
+                "majority",
+                "stratified",
+            ],
+        )
         code, out, _ = self.cli("dataset", self.data, "--id", "blobs", "--label", "label", db=False)
         self.assertEqual(code, 0)
         self.assertTrue(out.startswith("blobs@"))

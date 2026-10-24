@@ -92,6 +92,37 @@ class RegistryTests(unittest.TestCase):
             rebuilt = create_model(name, **model.get_params())
             self.assertEqual(rebuilt.get_params(), model.get_params(), name)
 
+    def test_float_overflow_surfaces_as_model_error_for_every_model(self):
+        extreme = [[1e300], [-1e300]] * 4
+        labels = ["a", "b"] * 4
+        sane = [[float(i)] for i in range(8)]
+        for name in available_models():
+            model = create_model(name)
+            try:  # a model may cope with extreme values; if it cannot, it must say so cleanly
+                model.fit(extreme, labels)
+                model.predict_proba([[1e300], [-1e300]])
+            except ModelError:
+                pass
+            model = create_model(name)
+            model.fit(sane, labels)
+            try:
+                model.predict_proba([[1e300], [-1e300]])
+                model.predict([[1e300]])
+            except ModelError:
+                pass
+
+    def test_overflow_in_training_is_reported_and_leaves_the_model_unfitted(self):
+        model = create_model("gaussian_nb")
+        with self.assertRaisesRegex(ModelError, "overflow"):
+            model.fit([[1e300], [-1e300]] * 2, ["a", "b"] * 2)
+        with self.assertRaises(ModelError):
+            model.classes_
+        model.fit([[1.0], [2.0]], ["a", "b"])
+        with self.assertRaisesRegex(ModelError, "overflow"):
+            model.predict([[1e300]])
+        with self.assertRaisesRegex(ModelError, "overflow"):
+            model.predict_proba([[1e300]])
+
     def test_invalid_data_in_a_refit_keeps_the_previous_fit(self):
         model = create_model("majority")
         model.fit([[0.0], [1.0]], ["a", "b"])

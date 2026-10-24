@@ -151,6 +151,41 @@ class IndependentKnownAnswerTests(RunnerTestCase):
         self.assertEqual(self.result.metrics["roc_auc"], 0.5)
 
 
+class NewModelTests(RunnerTestCase):
+    CASES = (
+        ("decision_tree", {"max_depth": 3}),
+        ("logistic_regression", {"max_iter": 300}),
+    )
+
+    def test_models_run_score_reuse_and_reproduce_through_the_runner(self):
+        from modelbench.reproducibility import check_reproducibility
+
+        metrics = ("accuracy", "precision", "recall", "f1", "roc_auc", "log_loss")
+        for name, params in self.CASES:
+            with self.subTest(model=name):
+                config = make_config(
+                    experiment_id=f"exp-{name.replace('_', '-')}",
+                    model=name, params=params, metrics=metrics, stratify=True,
+                )  # fmt: skip
+                result = self.run_it(config)
+                self.assertEqual(result.metrics["accuracy"], 1.0)
+                self.assertEqual(result.metrics["roc_auc"], 1.0)
+                self.assertTrue(math.isfinite(result.metrics["log_loss"]))
+                again = self.run_it(config, reuse_existing=True)
+                self.assertEqual((again.reused, again.run_id), (True, result.run_id))
+                report = check_reproducibility(
+                    self.store, result.run_id, blobs(), "label", environment=ENV
+                )
+                self.assertTrue(report.reproduced, msg=report.detail)
+
+    def test_a_parameter_the_model_does_not_have_is_rejected_before_a_run_exists(self):
+        with self.assertRaises(ModelError):
+            self.run_it(make_config(model="decision_tree", params={"k": 3}))
+        with self.assertRaises(ModelError):
+            self.run_it(make_config(model="logistic_regression", params={"max_depth": 3}))
+        self.assertNoRunsCreated()
+
+
 class DeterminismTests(RunnerTestCase):
     def test_same_inputs_give_identical_results_in_separate_stores(self):
         config = make_config(model="stratified", params={}, metrics=("accuracy", "f1"))

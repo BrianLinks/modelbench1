@@ -6,7 +6,9 @@ from typing import Any
 
 from ..errors import ModelError
 from .base import Classifier
+from .decision_tree import DecisionTreeClassifier
 from .knn import KNNClassifier
+from .logistic_regression import LogisticRegression
 from .majority import MajorityClassifier
 from .naive_bayes import GaussianNB
 from .stratified import StratifiedClassifier
@@ -16,6 +18,8 @@ REGISTRY: dict[str, type[Classifier]] = {
     StratifiedClassifier.name: StratifiedClassifier,
     KNNClassifier.name: KNNClassifier,
     GaussianNB.name: GaussianNB,
+    DecisionTreeClassifier.name: DecisionTreeClassifier,
+    LogisticRegression.name: LogisticRegression,
 }
 
 
@@ -38,8 +42,10 @@ def create_model(name: str, **params: Any) -> Classifier:
 __all__ = [
     "REGISTRY",
     "Classifier",
+    "DecisionTreeClassifier",
     "GaussianNB",
     "KNNClassifier",
+    "LogisticRegression",
     "MajorityClassifier",
     "StratifiedClassifier",
     "available_models",

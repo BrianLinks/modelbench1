@@ -13,7 +13,7 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.store`: SQLite run store (datasets, runs, params, metric series, artifact metadata,
   tags) with migrations and a strict run lifecycle
 - `modelbench.models`: pure-Python classifiers behind one interface and a name registry:
-  `majority`, `stratified`, `knn`, `gaussian_nb`
+  `majority`, `stratified`, `knn`, `gaussian_nb`, `decision_tree`, `logistic_regression`
 - `modelbench.compare`: parameter diffs, metric deltas, ranking, and a paired bootstrap
 - `modelbench.run_comparison`: `compare_runs` over completed runs in the store
 - `modelbench.runner`: `run_experiment` splits a dataset, fits a model, scores it, and records
@@ -24,7 +24,8 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.cli`: the `modelbench` command (also `python -m modelbench`)
 - `modelbench.dashboard`: a read-only local web dashboard (`modelbench serve`)
 
-Linear/logistic regression and a decision tree and import are planned and not built yet.
+Linear regression (and regression metrics in the runner) and import are planned and not built
+yet.
 
 ## Running an experiment
 
@@ -244,6 +245,8 @@ All classifiers share `fit(X, y)`, `predict(X)`, and `predict_proba(X)`. Probabi
 | `stratified` | Samples labels from the priors with a seeded generator; repeatable per `seed` |
 | `knn` | `k`, `metric` (euclidean, manhattan), `weights` (uniform, distance); equal distances rank by training-row position |
 | `gaussian_nb` | Per-class normal distributions per feature, log space, `var_smoothing` |
+| `decision_tree` | CART with Gini impurity: `max_depth` (default 5, `None` for unlimited), `min_samples_split`, `min_samples_leaf`; leaves predict class fractions |
+| `logistic_regression` | Multinomial (softmax) with an L2 penalty: `l2` (default 0.01), `max_iter`, `tol`; features are standardised internally |
 
 ```python
 from modelbench.models import create_model
@@ -254,6 +257,34 @@ model.predict([[0.5], [10.5]])  # ['a', 'b']
 ```
 
 k-NN uses features as given, so scale them first if their units differ.
+
+```python
+tree = create_model("decision_tree", max_depth=2)
+tree.fit([[1.0], [2.0], [3.0], [10.0], [11.0], [12.0]], ["a", "a", "a", "b", "b", "b"])
+print(tree.describe())
+# if x0 <= 6.5:
+#   predict 'a' (n=3)
+#   else: predict 'b' (n=3)
+```
+
+Decision tree details: splits are `x <= threshold` with the threshold halfway between two
+neighbouring distinct training values; equal-quality splits go to the lowest feature index and
+then the lowest threshold, so the tree does not depend on row order. A node is split even when
+no split lowers its impurity (XOR needs that), until it is pure, too small, or at `max_depth`.
+`depth_`, `n_leaves_`, and `describe()` report the fitted tree.
+
+Logistic regression details: the objective is mean cross-entropy plus `l2 / 2` times the squared
+(standardised) weights, intercepts unpenalised. It is solved by accelerated gradient descent
+with a step size taken from a bound on the objective's curvature, so there is no learning rate
+to set. Training stops when the largest gradient entry is below `tol`, or after `max_iter`
+iterations; `converged_` and `n_iter_` say which, and `coef_` and `intercept_` give the result
+on the original feature scale. The penalty shrinks the weights, so even separable data can
+leave a point misclassified at the default `l2`; lower it for a sharper boundary. Results
+depend on row order only at rounding level and are identical for identical input. It is meant
+for small tables, since the cost is `max_iter` x rows x classes x features.
+
+Every model reports a float overflow (for example features near 1e300) as a `ModelError`
+asking you to rescale, never as a raw `OverflowError`.
 
 ## Run store rules
 

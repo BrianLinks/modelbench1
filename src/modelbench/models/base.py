@@ -94,7 +94,10 @@ class Classifier(ABC):
         self._classes = None  # a failed refit must not leave a half-trained model usable
         self._n_features = None
         classes = ordered_labels(labels)
-        self._fit(rows, labels)
+        try:
+            self._fit(rows, labels)
+        except ArithmeticError as exc:  # float overflow raises OverflowError, not inf
+            raise ModelError(self._overflow_message(exc)) from exc
         self._classes = classes
         self._n_features = len(rows[0])
 
@@ -107,13 +110,23 @@ class Classifier(ABC):
             )
         return rows
 
+    def _overflow_message(self, exc: ArithmeticError) -> str:
+        return f"{self.name} hit a numeric overflow ({exc}); rescale the features"
+
+    def _checked_proba(self, X: Sequence[Sequence[float]]) -> Matrix:
+        rows = self._check_predict_input(X)
+        try:
+            return self._predict_proba(rows)
+        except ArithmeticError as exc:
+            raise ModelError(self._overflow_message(exc)) from exc
+
     def predict_proba(self, X: Sequence[Sequence[float]]) -> Matrix:
-        return self._predict_proba(self._check_predict_input(X))
+        return self._checked_proba(X)
 
     def predict(self, X: Sequence[Sequence[float]]) -> list[Label]:
         classes = self.classes_
         out: list[Label] = []
-        for row in self._predict_proba(self._check_predict_input(X)):
+        for row in self._checked_proba(X):
             best = 0
             for index in range(1, len(row)):
                 if row[index] > row[best]:

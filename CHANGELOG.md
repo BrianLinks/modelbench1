@@ -27,6 +27,8 @@ All notable changes to this project are documented here.
 - Run notes (`Store.add_note`, `get_notes`) with a schema migration that keeps existing data.
 - Export: `export_json` (`modelbench-runs` version 1), `export_metrics_csv`, and
   `write_text_atomic`.
+- Models: `decision_tree` (CART, Gini) and `logistic_regression` (multinomial, L2, accelerated
+  gradient descent with standardised features).
 - Dashboard: `modelbench serve` runs a read-only local web dashboard (run list, run detail with
   charts, comparison, JSON API) with a loopback-only default, Host-header check, and a strict
   Content-Security-Policy. `Store(read_only=True)` opens a database that SQLite will not write.
@@ -37,6 +39,8 @@ All notable changes to this project are documented here.
 - `metrics.ordered_labels` is now public so metrics and models share one label ordering.
 
 ### Fixed
+- Float overflow in any model (for example `gaussian_nb` with features near 1e300) raised a raw
+  `OverflowError`; it is now a `ModelError`.
 - Opening a file that is not a SQLite database now raises `StoreError` instead of a raw
   `sqlite3.DatabaseError`.
 - Run store no longer leaks its SQLite connection when opening fails (for example when the
