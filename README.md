@@ -21,6 +21,7 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.reproducibility`: re-run a stored run and compare it, and close runs a crash left
   in `running`
 - `modelbench.export`: export runs as JSON or a metrics CSV, written atomically
+- `modelbench.importer`: import a JSON export into a store, all or nothing, skipping runs already there
 - `modelbench.cli`: the `modelbench` command (also `python -m modelbench`)
 - `modelbench.dashboard`: a read-only local web dashboard (`modelbench serve`)
 - `modelbench.samples`: seeded synthetic datasets and a demo that fills a database with runs
@@ -111,6 +112,7 @@ modelbench [--db runs.db] <command> ...
 | `repro RUN --data F.csv --label COL` | re-run and check it reproduces (`--tolerance`) |
 | `note RUN TEXT` | attach a note |
 | `export RUN ... ` | JSON, or `--format csv`; `-o FILE` writes atomically |
+| `import FILE.json` | add runs from a JSON export (`--dry-run`, `--json`); creates the database if needed |
 | `sample NAME` | write a seeded synthetic dataset as CSV (`--seed`, `-o FILE`, size and noise options) |
 | `demo` | run every model on three sample datasets and record the runs (`--seed`, `--rows-per-class`) |
 | `serve` | read-only dashboard at http://127.0.0.1:8765/ (`--port`, `--host`, `--allow-network`) |
@@ -252,7 +254,29 @@ export_metrics_csv(store, [run_id])
 - `export_metrics_csv` writes one row per metric point with exact float values.
 - `write_text_atomic` writes through a temporary file and replaces the target, so a failure keeps
   the old file. The file is created owner-readable only (mode 0600).
-- Importing a document back into a store is not built yet.
+
+### Importing
+
+```
+modelbench --db other.db import runs.json            # creates other.db if needed
+modelbench --db other.db import runs.json --dry-run  # check and report, write nothing
+```
+
+- Only the JSON export can be imported. The metrics CSV has no configs, so it cannot rebuild runs.
+- The whole file is checked before anything is written: format and version, the shape of every
+  run, and that each run's config hash, seed, experiment, and dataset agree with its config. One
+  bad run rejects the file, and the runs go in as a single transaction, so nothing is half-imported.
+- Imported runs get new ids from the receiving database and keep their timestamps, status,
+  metrics, artifacts, tags, and notes. A tag `imported_from` holds the id the run had where it was
+  exported; if the run was already imported once, the first source is kept.
+- A run already present (same config, dataset version, status, timestamps, and metrics) is
+  skipped, so importing a file twice adds nothing. Running `import` on the run's own database
+  skips everything too.
+- Unfinished (`running`) runs are refused, and a dataset version already stored with a different
+  content hash stops the import. Files up to 50 MB and 10,000 runs are accepted.
+- Artifact files are not copied: only their metadata, including the original path, travels.
+- In Python: `modelbench.importer.import_file(store, path)` or `import_runs_json(store, text)`,
+  each returning an `ImportReport` with `imported` and `skipped` pairs.
 
 ## Comparing runs
 

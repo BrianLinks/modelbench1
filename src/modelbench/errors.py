@@ -59,3 +59,6 @@ class CliError(ModelBenchError, ValueError):
 class DashboardError(ModelBenchError, ValueError):
     """A dashboard request is malformed, or the server cannot be started as asked."""
 
+
+class RunImportError(ModelBenchError, ValueError):
+    """An export document that cannot be imported."""

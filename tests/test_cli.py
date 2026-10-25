@@ -596,6 +596,94 @@ class ErrorHandlingTests(CliTestCase):
         self.assertEqual(code, 2)
 
 
+class ImportCommandTests(CliTestCase):
+    def setUp(self):
+        super().setUp()
+        self.run_experiment()
+        self.run_experiment(self._config(model="majority", params={}))
+        self.export_path = self.dir / "runs.json"
+        code, _, err = self.cli("export", "run-000001", "run-000002", "-o", self.export_path)
+        self.assertEqual((code, err), (0, ""))
+        self.other = str(self.dir / "other.db")
+
+    def _config(self, **overrides):
+        path = self.dir / f"c{len(list(self.dir.iterdir()))}.json"
+        path.write_text(config_text(**overrides))
+        return path
+
+    def cli_other(self, *args):
+        original, self.db = self.db, self.other
+        try:
+            return self.cli(*args)
+        finally:
+            self.db = original
+
+    def test_import_creates_the_database_and_lists_the_mapping(self):
+        code, out, err = self.cli_other("import", self.export_path)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(
+            out.splitlines(),
+            [
+                "run-000001 -> run-000001",
+                "run-000002 -> run-000002",
+                "imported 2 run(s), skipped 0 already present",
+            ],
+        )
+        shown = json.loads(self.cli_other("show", "run-000001", "--json")[1])
+        self.assertEqual(shown["tags"]["imported_from"], "run-000001")
+
+    def test_a_second_import_skips_everything(self):
+        self.cli_other("import", self.export_path)
+        code, out, _ = self.cli_other("import", self.export_path)
+        self.assertEqual(code, 0)
+        self.assertIn("run-000001 already present as run-000001", out)
+        self.assertTrue(out.endswith("imported 0 run(s), skipped 2 already present\n"))
+        self.assertEqual(len(json.loads(self.cli_other("list", "--json")[1])), 2)
+
+    def test_json_output(self):
+        code, out, _ = self.cli_other("import", self.export_path, "--json")
+        data = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual(data["dry_run"], False)
+        self.assertEqual(
+            data["imported"],
+            [
+                {"source": "run-000001", "run_id": "run-000001"},
+                {"source": "run-000002", "run_id": "run-000002"},
+            ],
+        )
+        self.assertEqual(data["skipped"], [])
+        again = json.loads(self.cli_other("import", self.export_path, "--json")[1])
+        self.assertEqual(again["skipped"][0], {"source": "run-000001", "existing": "run-000001"})
+
+    def test_dry_run_never_creates_or_changes_a_database(self):
+        code, out, _ = self.cli_other("import", self.export_path, "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("run-000001 (new)", out)
+        self.assertTrue(out.endswith("would import 2 run(s), skipped 0 already present\n"))
+        self.assertFalse(Path(self.other).exists())
+        data = json.loads(self.cli_other("import", self.export_path, "--dry-run", "--json")[1])
+        self.assertEqual(data["dry_run"], True)
+        self.assertEqual(data["imported"][0], {"source": "run-000001", "run_id": None})
+        self.cli_other("import", self.export_path)
+        out = self.cli_other("import", self.export_path, "--dry-run")[1]
+        self.assertTrue(out.endswith("would import 0 run(s), skipped 2 already present\n"))
+
+    def test_bad_files_exit_with_code_2_and_change_nothing(self):
+        bad = self.dir / "bad.json"
+        bad.write_text('{"format": "modelbench-runs", "version": 1, "runs": [1]}')
+        for target in (bad, self.dir / "missing.json"):
+            code, out, err = self.cli_other("import", target)
+            self.assertEqual((code, out), (2, ""))
+            self.assertNotEqual(err, "")
+        self.assertFalse(Path(self.other).exists())  # no empty database left behind
+        self.assertEqual(len(json.loads(self.cli("list", "--json")[1])), 2)
+        self.assertEqual(self.cli_other("import", self.export_path)[0], 0)
+
+    def test_help_lists_the_command(self):
+        self.assertIn("import", build_parser().format_help())
+
+
 class SafeTextTests(unittest.TestCase):
     def test_escapes_only_control_characters(self):
         self.assertEqual(_safe("plain text"), "plain text")

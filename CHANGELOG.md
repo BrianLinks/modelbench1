@@ -39,6 +39,10 @@ All notable changes to this project are documented here.
   targets, regression metrics only, no stratify). `modelbench models` now shows each model's kind.
 - Samples: seeded `linear` regression generator (`make_linear`, known weights via
   `linear_weights`) and the `sample linear --rows --features --noise` options.
+- Import: `import_file` and `import_runs_json` read a `modelbench-runs` JSON export with full
+  validation, add runs in one transaction with new ids and original timestamps, tag them
+  `imported_from`, and skip runs already present. `Store.import_runs`, `Store.find_runs_by_tag`,
+  and the `import` command (`--dry-run`, `--json`).
 - Command line: `run`, `list`, `show`, `compare`, `repro`, `note`, `export`, `recover`,
   `dataset`, and `models`, with `--json` output and `python -m modelbench`.
 

@@ -21,6 +21,7 @@ from .dashboard import DEFAULT_PORT, serve
 from .datasets import make_version, read_csv
 from .errors import CliError, ModelBenchError
 from .export import export_json, export_metrics_csv, export_runs, write_text_atomic
+from .importer import import_runs_json, parse_document, parse_runs, read_import_file
 from .models import all_models, model_kind
 from .reproducibility import check_reproducibility, recover_stale_runs
 from .run_comparison import RunComparison, compare_runs
@@ -279,6 +280,33 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import(args: argparse.Namespace) -> int:
+    # a dry run never creates the database; against a missing one it checks for an empty one
+    text = read_import_file(args.file)
+    parse_runs(parse_document(text))  # a bad file must not leave an empty database behind
+    path = ":memory:" if args.dry_run and not Path(args.db).is_file() else args.db
+    with Store(path) as store:
+        report = import_runs_json(store, text, dry_run=args.dry_run)
+    if args.json:
+        print(
+            _json(
+                {
+                    "dry_run": args.dry_run,
+                    "imported": [{"source": s, "run_id": n or None} for s, n in report.imported],
+                    "skipped": [{"source": s, "existing": e} for s, e in report.skipped],
+                }
+            )
+        )
+        return 0
+    verb = "would import" if args.dry_run else "imported"
+    for source, new in report.imported:
+        print(f"{source} -> {new}" if new else f"{source} (new)")
+    for source, existing in report.skipped:
+        print(f"{source} already present as {existing}")
+    print(f"{verb} {len(report.imported)} run(s), skipped {len(report.skipped)} already present")
+    return 0
+
+
 def cmd_recover(args: argparse.Namespace) -> int:
     with _open_existing(args.db) as store:
         closed = recover_stale_runs(store, args.older_than)
@@ -406,6 +434,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("note", cmd_note, "attach a note to a run")
     p.add_argument("run_id")
     p.add_argument("text")
+
+    p = add("import", cmd_import, "import runs from a JSON export", True)
+    p.add_argument("file")
+    p.add_argument("--dry-run", action="store_true", help="check only, write nothing")
 
     p = add("export", cmd_export, "export runs as JSON or a metrics CSV")
     p.add_argument("run_ids", nargs="+")

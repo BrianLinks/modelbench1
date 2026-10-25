@@ -181,6 +181,55 @@ def _check_step(step: object) -> int:
     return step
 
 
+def _check_tag(key: object, value: object) -> tuple[str, str]:
+    _check_name("tag", key)
+    if not isinstance(value, str) or len(value) > _MAX_TEXT:
+        raise StoreError(f"tag value must be a string of at most {_MAX_TEXT} characters")
+    return str(key), value
+
+
+def _check_artifact(
+    name: object, kind: object, sha256: object, size_bytes: object, path: object
+) -> None:
+    _check_name("artifact", name)
+    _check_name("artifact kind", kind)
+    if not isinstance(sha256, str) or _SHA256_RE.fullmatch(sha256) is None:
+        raise StoreError("sha256 must be 64 lowercase hex characters")
+    if isinstance(size_bytes, bool) or not isinstance(size_bytes, int) or size_bytes < 0:
+        raise StoreError("size_bytes must be a non-negative integer")
+    if path is not None and (not isinstance(path, str) or len(path) > 500):
+        raise StoreError("path must be a string of at most 500 characters")
+
+
+def _check_note(text: object) -> str:
+    if not isinstance(text, str) or text.strip() == "" or len(text) > _MAX_NOTE:
+        raise StoreError(f"a note must be non-empty text of at most {_MAX_NOTE} characters")
+    return text
+
+
+def _check_timestamp(name: str, value: object) -> str:
+    if not isinstance(value, str) or _TIMESTAMP_RE.fullmatch(value) is None:
+        raise StoreError(f"{name} must look like 2026-01-31T09:30:00Z, got {value!r}")
+    return value
+
+
+@dataclass(frozen=True)
+class ImportedRun:
+    """A finished run to insert as it was recorded elsewhere, with its original timestamps."""
+
+    config: ExperimentConfig
+    dataset: DatasetVersion
+    environment: dict[str, Any]
+    status: str
+    started_at: str
+    finished_at: str
+    error: str | None
+    metrics: tuple[MetricPoint, ...]
+    artifacts: tuple[ArtifactRecord, ...]
+    tags: dict[str, str]
+    notes: tuple[NoteRecord, ...]
+
+
 class Store:
     """Wrapper over one SQLite database. Pass `clock` to make timestamps deterministic."""
 
@@ -513,14 +562,7 @@ class Store:
     ) -> None:
         """Record metadata about a file a run produced. The file itself is not stored here."""
         self._require_running(run_id)
-        _check_name("artifact", name)
-        _check_name("artifact kind", kind)
-        if not isinstance(sha256, str) or _SHA256_RE.fullmatch(sha256) is None:
-            raise StoreError("sha256 must be 64 lowercase hex characters")
-        if isinstance(size_bytes, bool) or not isinstance(size_bytes, int) or size_bytes < 0:
-            raise StoreError("size_bytes must be a non-negative integer")
-        if path is not None and (not isinstance(path, str) or len(path) > 500):
-            raise StoreError("path must be a string of at most 500 characters")
+        _check_artifact(name, kind, sha256, size_bytes, path)
         try:
             with self._conn:
                 self._conn.execute(
@@ -546,8 +588,7 @@ class Store:
     def add_note(self, run_id: str, text: str) -> None:
         """Attach a free-text note to a run in any status. Notes are append-only."""
         self._run_row(run_id)
-        if not isinstance(text, str) or text.strip() == "" or len(text) > _MAX_NOTE:
-            raise StoreError(f"a note must be non-empty text of at most {_MAX_NOTE} characters")
+        _check_note(text)
         with self._conn:
             self._conn.execute(
                 "INSERT INTO notes (run_id, created_at, text) VALUES (?, ?, ?)",
@@ -565,12 +606,154 @@ class Store:
     def set_tag(self, run_id: str, key: str, value: str) -> None:
         """Set or replace a tag on a running run."""
         self._require_running(run_id)
-        _check_name("tag", key)
-        if not isinstance(value, str) or len(value) > _MAX_TEXT:
-            raise StoreError(f"tag value must be a string of at most {_MAX_TEXT} characters")
+        _check_tag(key, value)
         with self._conn:
             self._conn.execute(
                 "INSERT INTO tags (run_id, key, value) VALUES (?, ?, ?)"
                 " ON CONFLICT (run_id, key) DO UPDATE SET value = excluded.value",
                 (run_id, key, value),
             )
+
+    def find_runs_by_tag(self, key: str, value: str) -> list[str]:
+        """Run ids carrying the tag `key` = `value`, oldest first."""
+        _check_tag(key, value)
+        rows = self._conn.execute(
+            "SELECT t.run_id FROM tags t JOIN runs r ON r.run_id = t.run_id"
+            " WHERE t.key = ? AND t.value = ? ORDER BY r.seq",
+            (key, value),
+        )
+        return [r["run_id"] for r in rows]
+
+    def import_runs(self, runs: Sequence[ImportedRun]) -> list[str]:
+        """Insert finished runs recorded elsewhere. All are stored or none are.
+
+        Every run gets a new id from this database and keeps its own timestamps, status, metrics,
+        artifacts, tags, and notes. Everything is validated before the first write, and a dataset
+        version already registered with a different content hash is refused.
+        """
+        checked = [self._check_imported(run) for run in runs]
+        ids: list[str] = []
+        try:
+            with self._conn:
+                for run, dataset_row in zip(runs, checked, strict=True):
+                    ids.append(self._insert_imported(run, dataset_row))
+        except sqlite3.Error as exc:
+            raise StoreError(f"import failed, nothing was stored: {exc}") from exc
+        return ids
+
+    def _check_imported(self, run: ImportedRun) -> bool:
+        """Validate one run; return True if its dataset still has to be registered."""
+        config, dataset = run.config, run.dataset
+        if config.dataset_id != dataset.dataset_id:
+            raise StoreError(
+                f"config uses dataset {config.dataset_id!r} but {dataset.dataset_id!r} was given"
+            )
+        if config.dataset_version is not None and config.dataset_version != dataset.version:
+            raise StoreError(
+                f"config pins dataset version {config.dataset_version} "
+                f"but {dataset.version} was given"
+            )
+        if run.status not in ("completed", "failed"):
+            raise StoreError(f"only completed or failed runs can be imported, got {run.status!r}")
+        started = _check_timestamp("started_at", run.started_at)
+        finished = _check_timestamp("finished_at", run.finished_at)
+        if finished < started:
+            raise StoreError("finished_at is before started_at")
+        if run.status == "failed":
+            if not isinstance(run.error, str) or not run.error:
+                raise StoreError("a failed run needs an error message")
+        elif run.error is not None:
+            raise StoreError("a completed run cannot have an error message")
+        seen: set[tuple[str, int]] = set()
+        for point in run.metrics:
+            _check_name("metric", point.name)
+            _check_step(point.step)
+            _check_value(point.value)
+            if (point.name, point.step) in seen:
+                raise StoreError(f"metric {point.name!r} appears twice at step {point.step}")
+            seen.add((point.name, point.step))
+        names: set[str] = set()
+        for a in run.artifacts:
+            _check_artifact(a.name, a.kind, a.sha256, a.size_bytes, a.path)
+            if a.name in names:
+                raise StoreError(f"artifact {a.name!r} appears twice")
+            names.add(a.name)
+        for key, value in run.tags.items():
+            _check_tag(key, value)
+        for note in run.notes:
+            _check_timestamp("note created_at", note.created_at)
+            _check_note(note.text)
+        existing = self._conn.execute(
+            "SELECT sha256 FROM datasets WHERE dataset_id = ? AND version = ?",
+            (dataset.dataset_id, dataset.version),
+        ).fetchone()
+        if existing is not None and existing["sha256"] != dataset.sha256:
+            raise StoreError(
+                f"dataset {dataset.dataset_id}@{dataset.version} is already registered "
+                "with a different content hash"
+            )
+        return existing is None
+
+    def _insert_imported(self, run: ImportedRun, register: bool) -> str:
+        config, dataset = run.config, run.dataset
+        now = self._clock()
+        if register:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO datasets (dataset_id, version, sha256, n_rows,"
+                " columns_json, label_column, registered_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    dataset.dataset_id,
+                    dataset.version,
+                    dataset.sha256,
+                    dataset.n_rows,
+                    json.dumps(list(dataset.columns)),
+                    dataset.label_column,
+                    now,
+                ),
+            )
+        self._conn.execute(
+            "INSERT OR IGNORE INTO experiments (experiment_id, created_at) VALUES (?, ?)",
+            (config.experiment_id, now),
+        )
+        cursor = self._conn.execute(
+            "INSERT INTO runs (experiment_id, config_hash, config_json, dataset_id,"
+            " dataset_version, seed, status, started_at, finished_at, error, environment_json)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                config.experiment_id,
+                config.config_hash(),
+                json.dumps(config.to_dict(), sort_keys=True),
+                dataset.dataset_id,
+                dataset.version,
+                config.seed,
+                run.status,
+                run.started_at,
+                run.finished_at,
+                run.error,
+                json.dumps(dict(run.environment), sort_keys=True),
+            ),
+        )
+        run_id = f"run-{cursor.lastrowid:06d}"
+        self._conn.execute("UPDATE runs SET run_id = ? WHERE seq = ?", (run_id, cursor.lastrowid))
+        self._conn.executemany(
+            "INSERT INTO params (run_id, key, value_json) VALUES (?, ?, ?)",
+            [(run_id, k, json.dumps(v, sort_keys=True)) for k, v in sorted(config.params.items())],
+        )
+        self._conn.executemany(
+            "INSERT INTO metrics (run_id, name, step, value) VALUES (?, ?, ?, ?)",
+            [(run_id, p.name, p.step, float(p.value)) for p in run.metrics],
+        )
+        self._conn.executemany(
+            "INSERT INTO artifacts (run_id, name, kind, sha256, size_bytes, path)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            [(run_id, a.name, a.kind, a.sha256, a.size_bytes, a.path) for a in run.artifacts],
+        )
+        self._conn.executemany(
+            "INSERT INTO tags (run_id, key, value) VALUES (?, ?, ?)",
+            [(run_id, k, v) for k, v in sorted(run.tags.items())],
+        )
+        self._conn.executemany(
+            "INSERT INTO notes (run_id, created_at, text) VALUES (?, ?, ?)",
+            [(run_id, n.created_at, n.text) for n in run.notes],
+        )
+        return run_id
