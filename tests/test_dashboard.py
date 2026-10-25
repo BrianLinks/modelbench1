@@ -449,5 +449,34 @@ class ServerTests(DashboardTestCase):
         self.assertEqual(created[0].socket.fileno(), -1)  # the listening socket was closed
 
 
+class RegressionRunsTests(unittest.TestCase):
+    def test_every_page_and_api_works_for_regression_runs(self):
+        table = Table(("x", "y"), tuple((str(i), repr(2.0 * i + 1.0)) for i in range(30)))
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "reg.db"
+            with Store(db) as store:
+                for model in ("linear_regression", "mean"):
+                    run_experiment(
+                        store,
+                        config(model=model, params={}, metrics=("mae", "rmse", "r2"),
+                               dataset_id="line"),
+                        table, "y", environment=ENV,
+                    )  # fmt: skip
+            host = "127.0.0.1:8765"
+            for target in ("/", "/run/run-000001", "/compare?run=run-000001&run=run-000002",
+                           "/api/runs", "/api/run/run-000002",
+                           "/api/compare?run=run-000001&run=run-000002"):  # fmt: skip
+                response = handle(db, target, host, True)
+                self.assertEqual(response.status, 200, target)
+            page = handle(db, "/compare?run=run-000001&run=run-000002", host, True).body
+            for name in ("mae", "rmse", "r2"):
+                self.assertIn(name, page)
+            api = handle(db, "/api/compare?run=run-000001&run=run-000002", host, True)
+            data = json.loads(api.body)
+            self.assertEqual(data["baseline"], "run-000001")
+            self.assertAlmostEqual(data["values"]["run-000001"]["r2"], 1.0, places=8)
+            self.assertLess(data["values"]["run-000002"]["r2"], 0.2)
+
+
 if __name__ == "__main__":
     unittest.main()
