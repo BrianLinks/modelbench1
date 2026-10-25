@@ -624,5 +624,53 @@ class RegressionRunTests(RunnerTestCase):
         self.assertEqual(record.tags["model_seed"], str(derive_seed(7, "model")))
 
 
+class ExtraMetricTests(RunnerTestCase):
+    def test_separable_data_scores_perfectly_on_every_new_metric(self):
+        names = (
+            "precision_micro", "precision_weighted", "recall_micro", "recall_weighted",
+            "f1_micro", "f1_weighted", "balanced_accuracy", "mcc", "average_precision",
+        )  # fmt: skip
+        result = self.run_it(make_config(metrics=names, stratify=True))
+        self.assertEqual(set(result.metrics), set(names))
+        for name, value in result.metrics.items():
+            self.assertAlmostEqual(value, 1.0, msg=name)
+
+    def test_majority_baseline_values_follow_from_its_accuracy(self):
+        names = (
+            "accuracy", "precision_micro", "recall_micro", "f1_micro", "recall_weighted",
+            "precision_weighted", "f1_weighted", "balanced_accuracy", "mcc",
+        )  # fmt: skip
+        config = make_config(model="majority", params={}, metrics=names)
+        scores = self.run_it(config).metrics
+        acc = scores["accuracy"]
+        self.assertEqual(acc, 0.375)  # the seeded split: 3 of 8 test rows are the majority class
+        for name in ("precision_micro", "recall_micro", "f1_micro", "recall_weighted"):
+            self.assertAlmostEqual(scores[name], acc, msg=name)
+        self.assertAlmostEqual(scores["precision_weighted"], acc * acc)  # only that class scores
+        f1_of_predicted = 2 * acc * 1.0 / (acc + 1.0)  # its recall is 1
+        self.assertAlmostEqual(scores["f1_weighted"], f1_of_predicted * acc)
+        self.assertAlmostEqual(scores["balanced_accuracy"], 0.5)
+        self.assertEqual(scores["mcc"], 0.0)
+
+    def test_each_score_metric_calls_its_own_function(self):
+        with (
+            mock.patch("modelbench.runner.m.average_precision", return_value=0.25) as ap,
+            mock.patch("modelbench.runner.m.roc_auc", return_value=0.75) as auc,
+        ):
+            scores = self.run_it(make_config(metrics=("roc_auc", "average_precision"))).metrics
+        self.assertEqual(scores, {"roc_auc": 0.75, "average_precision": 0.25})
+        self.assertEqual((ap.call_count, auc.call_count), (1, 1))
+
+    def test_average_precision_needs_two_classes_like_roc_auc(self):
+        with self.assertRaises(RunnerError):
+            self.run_it(make_config(metrics=("average_precision",)), three_class_table())
+        self.assertNoRunsCreated()
+
+    def test_new_metrics_are_rejected_for_regression_models(self):
+        with self.assertRaisesRegex(RunnerError, "do not apply to a regression"):
+            self.run_it(make_config(model="mean", params={}, metrics=("mcc",)), line_table())
+        self.assertNoRunsCreated()
+
+
 if __name__ == "__main__":
     unittest.main()

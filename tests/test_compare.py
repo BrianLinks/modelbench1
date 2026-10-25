@@ -70,7 +70,11 @@ class DiffParamsTests(unittest.TestCase):
 
 class DirectionTests(unittest.TestCase):
     def test_known_metrics(self):
-        for name in ("accuracy", "precision", "recall", "f1", "roc_auc", "r2"):
+        for name in (
+            "accuracy", "precision", "recall", "f1", "roc_auc", "r2",
+            "precision_micro", "precision_weighted", "recall_micro", "recall_weighted",
+            "f1_micro", "f1_weighted", "balanced_accuracy", "mcc", "average_precision",
+        ):  # fmt: skip
             self.assertTrue(higher_is_better(name), name)
         for name in ("log_loss", "mae", "mse", "rmse"):
             self.assertFalse(higher_is_better(name), name)

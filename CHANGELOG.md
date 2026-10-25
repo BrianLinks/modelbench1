@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- Metrics: `balanced_accuracy`, `matthews_corrcoef`, `average_precision`, and micro and weighted
+  precision, recall, and F1 as experiment metrics, with hand-computed tests.
+
 ## [0.1.0] - 2026-10-25
 
 ### Added

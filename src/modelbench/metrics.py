@@ -183,6 +183,70 @@ def precision_recall_f1(
     return PRF(precision, recall, f1, total_support)
 
 
+def balanced_accuracy(y_true: Sequence[Label], y_pred: Sequence[Label]) -> float:
+    """Mean recall over the labels that occur in `y_true`, so a rare class counts as much as a
+    common one. A model that always predicts the majority class scores 1 / (number of classes)."""
+    cm = confusion_matrix(y_true, y_pred)
+    recalls = [
+        cm.matrix[i][i] / support
+        for i in range(len(cm.labels))
+        if (support := sum(cm.matrix[i])) > 0
+    ]
+    return math.fsum(recalls) / len(recalls)
+
+
+def matthews_corrcoef(y_true: Sequence[Label], y_pred: Sequence[Label]) -> float:
+    """Matthews correlation coefficient in [-1, 1] (Gorodkin's multiclass form).
+
+    1 is perfect, 0 is no better than chance, -1 is total disagreement. When one side predicts
+    or contains a single class the denominator is zero and the score is 0.0.
+    """
+    cm = confusion_matrix(y_true, y_pred)
+    n = cm.total
+    correct = sum(cm.matrix[i][i] for i in range(len(cm.labels)))
+    true_counts = [sum(row) for row in cm.matrix]
+    pred_counts = [sum(row[j] for row in cm.matrix) for j in range(len(cm.labels))]
+    cross = sum(t * p for t, p in zip(true_counts, pred_counts, strict=True))
+    denominator = math.sqrt(
+        (n * n - sum(p * p for p in pred_counts)) * (n * n - sum(t * t for t in true_counts))
+    )
+    return _ratio(correct * n - cross, denominator)
+
+
+def average_precision(
+    y_true: Sequence[Label], y_score: Sequence[float], positive_label: Label = 1
+) -> float:
+    """Area under the precision-recall curve as a step sum: sum of (recall gain) x precision.
+
+    Samples with equal scores are taken together, so the result does not depend on their order.
+    """
+    _check_pair(y_true, y_score)
+    if len(set(y_true)) > 2:
+        raise MetricError("average_precision supports at most two distinct labels")
+    scores = _numbers(y_score, "y_score")
+    is_positive = [t == positive_label for t in y_true]
+    n_pos = sum(is_positive)
+    if n_pos == 0:
+        raise MetricError("average_precision needs at least one positive sample")
+    order = sorted(range(len(scores)), key=lambda i: -scores[i])
+    tp = seen = 0
+    previous_recall = 0.0
+    total = 0.0
+    position = 0
+    while position < len(order):
+        end = position
+        while end + 1 < len(order) and scores[order[end + 1]] == scores[order[position]]:
+            end += 1
+        for k in range(position, end + 1):
+            tp += is_positive[order[k]]
+        seen = end + 1
+        recall = tp / n_pos
+        total += (recall - previous_recall) * (tp / seen)
+        previous_recall = recall
+        position = end + 1
+    return total
+
+
 def roc_auc(y_true: Sequence[Label], y_score: Sequence[float], positive_label: Label = 1) -> float:
     """Area under the ROC curve for binary labels, via average ranks (ties count half)."""
     _check_pair(y_true, y_score)

@@ -7,9 +7,12 @@ import unittest
 from modelbench.errors import MetricError
 from modelbench.metrics import (
     accuracy,
+    average_precision,
+    balanced_accuracy,
     confusion_matrix,
     log_loss,
     mae,
+    matthews_corrcoef,
     mse,
     per_class_metrics,
     precision_recall_f1,
@@ -308,6 +311,109 @@ class PropertyTests(unittest.TestCase):
             probs = [self.rng.random() for _ in range(n)]
             self.assertGreaterEqual(log_loss(true, probs, labels=[0, 1]), 0.0)
         self.assertAlmostEqual(log_loss([1, 0], [1.0, 0.0]), 0.0, places=12)
+
+
+class BalancedAccuracyTests(unittest.TestCase):
+    def test_mean_of_per_class_recall(self):
+        # recall a = 2/3, recall b = 1  ->  5/6
+        self.assertAlmostEqual(balanced_accuracy(list("aaab"), list("aabb")), 5 / 6)
+
+    def test_majority_guess_scores_one_over_the_number_of_classes(self):
+        self.assertAlmostEqual(balanced_accuracy([0] * 9 + [1], [0] * 10), 0.5)
+        self.assertAlmostEqual(balanced_accuracy([0, 0, 1, 2], [0, 0, 0, 0]), 1 / 3)
+
+    def test_labels_that_never_occur_in_the_truth_are_ignored(self):
+        # a: 1 of 2 right, b: 2 of 2 right; the predicted-only label c adds nothing
+        self.assertAlmostEqual(balanced_accuracy(list("aabb"), list("acbb")), 0.75)
+
+    def test_perfect_and_validation(self):
+        self.assertEqual(balanced_accuracy(THREE_TRUE, THREE_TRUE), 1.0)
+        with self.assertRaises(MetricError):
+            balanced_accuracy([], [])
+        with self.assertRaises(MetricError):
+            balanced_accuracy([1, 2], [1])
+
+
+class MatthewsTests(unittest.TestCase):
+    def test_binary_matches_the_textbook_formula(self):
+        # tp=2 fn=1 fp=1 tn=4:  (2*4 - 1*1) / sqrt(3 * 3 * 5 * 5) = 7 / 15
+        true = [1, 1, 1, 0, 0, 0, 0, 0]
+        pred = [1, 1, 0, 1, 0, 0, 0, 0]
+        self.assertAlmostEqual(matthews_corrcoef(true, pred), 7 / 15)
+
+    def test_multiclass_matches_gorodkin(self):
+        # matrix [[1,1,0],[0,1,1],[0,0,2]]: c=4, s=6, t=(2,2,2), p=(1,2,3)
+        # (4*6 - 12) / sqrt((36 - 14) * (36 - 12)) = 12 / sqrt(528)
+        true = [0, 0, 1, 1, 2, 2]
+        pred = [0, 1, 1, 2, 2, 2]
+        self.assertAlmostEqual(matthews_corrcoef(true, pred), 12 / math.sqrt(528))
+
+    def test_extremes(self):
+        self.assertEqual(matthews_corrcoef(THREE_TRUE, THREE_TRUE), 1.0)
+        self.assertEqual(matthews_corrcoef([0, 1, 0, 1], [1, 0, 1, 0]), -1.0)
+
+    def test_a_constant_prediction_scores_zero(self):
+        self.assertEqual(matthews_corrcoef([1, 0, 1, 0], [1, 1, 1, 1]), 0.0)
+        self.assertEqual(matthews_corrcoef([1, 1, 1], [1, 1, 1]), 0.0)  # one class only
+
+    def test_symmetric_in_truth_and_prediction_and_in_label_names(self):
+        true, pred = THREE_TRUE, THREE_PRED
+        self.assertAlmostEqual(matthews_corrcoef(true, pred), matthews_corrcoef(pred, true))
+        renamed = {0: "x", 1: "y", 2: "z"}
+        self.assertAlmostEqual(
+            matthews_corrcoef(true, pred),
+            matthews_corrcoef([renamed[t] for t in true], [renamed[p] for p in pred]),
+        )
+
+
+class AveragePrecisionTests(unittest.TestCase):
+    def test_worked_example(self):
+        # ranked scores .9(+) .8(-) .7(+) .1(-):
+        # precision at the two positives = 1/1 and 2/3, each worth half the recall
+        self.assertAlmostEqual(average_precision([1, 0, 1, 0], [0.9, 0.8, 0.7, 0.1]), 5 / 6)
+
+    def test_perfect_and_worst_ranking(self):
+        self.assertEqual(average_precision([1, 1, 0, 0], [0.9, 0.8, 0.2, 0.1]), 1.0)
+        self.assertAlmostEqual(average_precision([0, 1], [0.9, 0.1]), 0.5)
+
+    def test_ties_are_taken_together_so_order_does_not_matter(self):
+        self.assertAlmostEqual(average_precision([1, 0], [0.5, 0.5]), 0.5)
+        self.assertAlmostEqual(average_precision([0, 1], [0.5, 0.5]), 0.5)
+        true = [1, 0, 1, 0, 0, 1]
+        score = [0.4, 0.4, 0.8, 0.1, 0.4, 0.8]
+        pairs = list(zip(true, score, strict=True))
+        reference = average_precision(true, score)
+        rng = random.Random(0)
+        for _ in range(20):
+            rng.shuffle(pairs)
+            shuffled = average_precision([t for t, _ in pairs], [s for _, s in pairs])
+            self.assertAlmostEqual(shuffled, reference)
+
+    def test_positive_label_selects_the_class(self):
+        true = ["a", "b", "a", "b"]
+        self.assertAlmostEqual(average_precision(true, [0.9, 0.8, 0.7, 0.1], "a"), 5 / 6)
+
+    def test_validation(self):
+        with self.assertRaises(MetricError):
+            average_precision([0, 0], [0.1, 0.2])  # no positives
+        with self.assertRaises(MetricError):
+            average_precision([0, 1, 2], [0.1, 0.2, 0.3])
+        with self.assertRaises(MetricError):
+            average_precision([0, 1], [0.1, float("nan")])
+        with self.assertRaises(MetricError):
+            average_precision([0, 1], [0.1, True])
+        with self.assertRaises(MetricError):
+            average_precision([0, 1], [0.1])
+
+    def test_bounded_by_zero_and_one(self):
+        rng = random.Random(5)
+        for _ in range(50):
+            n = rng.randint(2, 15)
+            true = [rng.randint(0, 1) for _ in range(n)]
+            if sum(true) == 0:
+                true[0] = 1
+            value = average_precision(true, [rng.random() for _ in range(n)])
+            self.assertTrue(0.0 < value <= 1.0, value)
 
 
 if __name__ == "__main__":

@@ -28,7 +28,24 @@ from .models.base import Classifier, Label, Regressor
 from .seeding import derive_seed
 from .store import Store
 
-CLASSIFICATION_METRICS = ("accuracy", "precision", "recall", "f1", "roc_auc", "log_loss")
+CLASSIFICATION_METRICS = (
+    "accuracy",
+    "precision",
+    "recall",
+    "f1",
+    "roc_auc",
+    "log_loss",
+    "precision_micro",
+    "precision_weighted",
+    "recall_micro",
+    "recall_weighted",
+    "f1_micro",
+    "f1_weighted",
+    "balanced_accuracy",
+    "mcc",
+    "average_precision",
+)
+SCORE_NEEDS_TWO_CLASSES = ("roc_auc", "average_precision")
 REGRESSION_METRICS = ("mae", "mse", "rmse", "r2")
 REUSE_TAGS = ("n_train", "n_test", "predictions_sha256")
 _NUMBER_RE = re.compile(r"[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?")  # ASCII digits only
@@ -213,15 +230,17 @@ def _features_and_labels(
 def _check_split_for_metrics(
     names: Sequence[str], train_labels: Sequence[Label], test_labels: Sequence[Label]
 ) -> None:
-    if "roc_auc" in names:
+    for needs_two in SCORE_NEEDS_TWO_CLASSES:
+        if needs_two not in names:
+            continue
         if len(set(train_labels)) != 2:
             raise RunnerError(
-                f"roc_auc needs exactly two classes in the training split, "
+                f"{needs_two} needs exactly two classes in the training split, "
                 f"found {len(set(train_labels))}"
             )
         if len(set(test_labels)) != 2:
             raise RunnerError(
-                f"roc_auc needs both classes in the test split, found {len(set(test_labels))}"
+                f"{needs_two} needs both classes in the test split, found {len(set(test_labels))}"
             )
     if "log_loss" in names:
         unseen = sorted(set(test_labels) - set(train_labels), key=str)
@@ -259,11 +278,20 @@ def _score(
             scores[name] = m.accuracy(y_true, y_pred)
         elif name in ("precision", "recall", "f1"):
             scores[name] = getattr(m.precision_recall_f1(y_true, y_pred, average="macro"), name)
+        elif name == "balanced_accuracy":
+            scores[name] = m.balanced_accuracy(y_true, y_pred)
+        elif name == "mcc":
+            scores[name] = m.matthews_corrcoef(y_true, y_pred)
+        elif name.rsplit("_", 1)[-1] in ("micro", "weighted") and name != "log_loss":
+            base, average = name.rsplit("_", 1)
+            scores[name] = getattr(m.precision_recall_f1(y_true, y_pred, average=average), base)
         else:
             proba = proba if proba is not None else model.predict_proba(test_X)
-            if name == "roc_auc":
+            if name in SCORE_NEEDS_TWO_CLASSES:
                 _, positive = model.classes_
-                scores[name] = m.roc_auc(y_true, [row[1] for row in proba], positive_label=positive)
+                column = [row[1] for row in proba]
+                function = m.roc_auc if name == "roc_auc" else m.average_precision
+                scores[name] = function(y_true, column, positive_label=positive)
             else:
                 scores[name] = m.log_loss(y_true, proba, labels=model.classes_)
     return scores

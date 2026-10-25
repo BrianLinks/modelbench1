@@ -397,9 +397,17 @@ asking you to rescale, never as a raw `OverflowError`.
 
 Pure-Python implementations with no dependencies:
 
-- classification: accuracy, confusion matrix, precision, recall, and F1 (per class, macro, micro,
-  weighted), ROC-AUC (binary), log loss
-- regression: MAE, RMSE, R²
+- classification: accuracy, balanced accuracy, Matthews correlation (MCC), confusion matrix,
+  precision, recall, and F1 (per class, macro, micro, weighted), ROC-AUC and average precision
+  (both binary), log loss
+- regression: MAE, MSE, RMSE, R²
+
+In an experiment config the metric names are `accuracy`, `precision`, `recall`, `f1` (macro),
+`precision_micro`, `precision_weighted`, `recall_micro`, `recall_weighted`, `f1_micro`,
+`f1_weighted`, `balanced_accuracy`, `mcc`, `roc_auc`, `average_precision`, `log_loss` for
+classifiers and `mae`, `mse`, `rmse`, `r2` for regressors. `roc_auc` and `average_precision` need
+exactly two classes, with both present in the test split. Balanced accuracy averages recall over
+the classes present in the true labels, so a majority-class guess scores 1 / (number of classes).
 
 Every formula is tested against small hand-computed examples.
 

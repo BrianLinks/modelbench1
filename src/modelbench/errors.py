@@ -62,3 +62,7 @@ class DashboardError(ModelBenchError, ValueError):
 
 class RunImportError(ModelBenchError, ValueError):
     """An export document that cannot be imported."""
+
+
+class SweepError(ModelBenchError, ValueError):
+    """A sweep file or option that cannot be used."""
