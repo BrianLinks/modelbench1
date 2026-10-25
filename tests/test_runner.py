@@ -9,11 +9,13 @@ from unittest import mock
 
 from modelbench import confusion
 from modelbench.config import ExperimentConfig
-from modelbench.datasets import Table, make_version, split_indices
+from modelbench.datasets import Table, kfold_indices, make_version, split_indices
 from modelbench.errors import DatasetError, ModelError, RunnerError, StoreError
-from modelbench.models import REGRESSORS
+from modelbench.models import REGRESSORS, create_model
+from modelbench.models.knn import KNNClassifier
 from modelbench.models.mean import MeanRegressor
-from modelbench.runner import _check_metrics, run_experiment
+from modelbench.reproducibility import check_reproducibility
+from modelbench.runner import _check_metrics, _mean_and_std, run_experiment
 from modelbench.seeding import derive_seed
 from modelbench.store import Store
 
@@ -727,6 +729,165 @@ class ConfusionMatrixTagTests(RunnerTestCase):
             result = self.run_it()
         self.assertNotIn("confusion_matrix", self.store.get_run(result.run_id).tags)
         self.assertEqual(self.store.get_run(result.run_id).status, "completed")
+
+
+class CrossValidationRunTests(RunnerTestCase):
+    def cv_config(self, **overrides):
+        fields = {"cv_folds": 4, "stratify": True, "metrics": ("accuracy", "balanced_accuracy")}
+        fields.update(overrides)
+        return make_config(**fields)
+
+    def test_mean_and_std_by_hand(self):
+        mean, std = _mean_and_std([1.0, 2.0, 3.0, 4.0])
+        self.assertEqual(mean, 2.5)
+        self.assertAlmostEqual(std, math.sqrt(1.25))  # deviations -1.5 -0.5 0.5 1.5: 5 / 4
+        mean, std = _mean_and_std([0.5, 0.5, 0.5])
+        self.assertEqual((mean, std), (0.5, 0.0))
+
+    def test_majority_baseline_on_balanced_folds_scores_exactly_one_half(self):
+        # 20 + 20 rows, stratified into 4 folds of 5 + 5; each training set is 15 + 15, the tie
+        # goes to the first class, so every fold predicts all "a": accuracy 5/10.
+        config = self.cv_config(model="majority", params={})
+        result = self.run_it(config)
+        self.assertEqual(result.metrics["accuracy"], 0.5)
+        self.assertEqual(result.metrics["accuracy_std"], 0.0)
+        self.assertEqual(result.metrics["balanced_accuracy"], 0.5)
+        self.assertEqual(set(result.metrics), {"accuracy", "accuracy_std", "balanced_accuracy",
+                                               "balanced_accuracy_std"})  # fmt: skip
+        record = self.store.get_run(result.run_id)
+        self.assertEqual(
+            record.tags["confusion_matrix"], '{"labels":["a","b"],"matrix":[[20,0],[20,0]]}'
+        )
+
+    def test_per_fold_metrics_are_a_series_and_the_mean_is_their_average(self):
+        config = self.cv_config(model="knn", params={"k": 3}, stratify=False, cv_folds=5)
+        result = self.run_it(config)
+        points = [p for p in self.store.get_metrics(result.run_id) if p.name == "fold/accuracy"]
+        self.assertEqual([p.step for p in points], [0, 1, 2, 3, 4])
+        mean, std = _mean_and_std([p.value for p in points])
+        self.assertAlmostEqual(result.metrics["accuracy"], mean)
+        self.assertAlmostEqual(result.metrics["accuracy_std"], std)
+        summary = [p for p in self.store.get_metrics(result.run_id) if p.name == "accuracy"]
+        self.assertEqual([p.step for p in summary], [0])
+        self.assertEqual(self.store.final_metrics(result.run_id)["accuracy"], mean)
+
+    def test_every_row_is_tested_once_and_recorded_in_the_predictions_file(self):
+        config = self.cv_config(model="knn", params={"k": 3})
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.run_it(config, artifact_dir=tmp)
+            saved = json.loads((Path(tmp) / result.run_id / "predictions.json").read_text())
+        folds = saved["folds"]
+        self.assertEqual(len(folds), 4)
+        tested = sorted(i for f in folds for i in f["test_indices"])
+        self.assertEqual(tested, list(range(40)))
+        expected = kfold_indices(40, 4, config.seed, blobs().column("label"))
+        self.assertEqual([f["test_indices"] for f in folds], [t for _, t in expected])
+        labels = blobs().column("label")
+        for fold in folds:
+            self.assertEqual(fold["y_true"], [labels[i] for i in fold["test_indices"]])
+
+    def test_tags_describe_the_folds(self):
+        result = self.run_it(self.cv_config(model="majority", params={}))
+        tags = self.store.get_run(result.run_id).tags
+        self.assertEqual(tags["cv_folds"], "4")
+        self.assertEqual(tags["n_test"], "40")  # every row is tested once
+        self.assertEqual(tags["n_train"], "30")  # the largest training set
+        self.assertEqual((result.n_train, result.n_test), (30, 40))
+        self.assertNotIn("model_seed", tags)  # each fold has its own
+
+    def test_n_train_is_the_largest_training_set_when_folds_are_uneven(self):
+        # 41 rows in 4 folds: test sizes 11, 10, 10, 10, so training sets are 30, 31, 31, 31.
+        table = Table(("x", "label"), tuple((str(i), "a" if i % 2 else "b") for i in range(41)))
+        result = self.run_it(self.cv_config(model="majority", params={}, stratify=False), table)
+        self.assertEqual((result.n_train, result.n_test), (31, 41))
+
+    def test_each_fold_gets_its_own_model_seed(self):
+        seeds = []
+        real = create_model
+
+        def spy(name, **params):
+            seeds.append(params["seed"])
+            return real(name, **params)
+
+        with mock.patch("modelbench.runner.create_model", spy):
+            self.run_it(self.cv_config(model="stratified", params={}))
+        self.assertEqual(len(seeds), 5)  # one check before the run, then one per fold
+        self.assertEqual(len(set(seeds[1:])), 4)
+        self.assertEqual(seeds[1], derive_seed(7, "model-fold-0"))
+        self.assertEqual(seeds[0], derive_seed(7, "model"))
+
+    def test_running_twice_gives_identical_results(self):
+        config = self.cv_config()
+        first, second = self.run_it(config), self.run_it(config)
+        self.assertEqual(first.predictions_sha256, second.predictions_sha256)
+        self.assertEqual(first.metrics, second.metrics)
+
+    def test_reuse_returns_the_summary_metrics_only(self):
+        config = self.cv_config()
+        first = self.run_it(config)
+        again = self.run_it(config, reuse_existing=True)
+        self.assertTrue(again.reused)
+        self.assertEqual(again.metrics, first.metrics)
+        self.assertFalse(any(name.startswith("fold/") for name in again.metrics))
+
+    def test_a_cv_run_can_be_checked_for_reproducibility(self):
+        result = self.run_it(self.cv_config())
+        report = check_reproducibility(self.store, result.run_id, blobs(), "label", environment=ENV)
+        self.assertTrue(report.reproduced, report.detail)
+
+    def test_a_cv_run_survives_export_and_import(self):
+        from modelbench.export import export_json
+        from modelbench.importer import import_runs_json
+
+        result = self.run_it(self.cv_config())
+        text = export_json(self.store, [result.run_id])
+        other = Store(":memory:")
+        self.addCleanup(other.close)
+        report = import_runs_json(other, text)
+        self.assertEqual(len(report.imported), 1)
+        new_id = report.imported[0][1]
+        self.assertEqual(other.get_config(new_id).cv_folds, 4)
+        self.assertEqual(other.final_metrics(new_id), self.store.final_metrics(result.run_id))
+        self.assertEqual(other.get_run(new_id).tags["cv_folds"], "4")
+
+    def test_regression_cross_validation(self):
+        config = make_config(
+            model="linear_regression", params={}, metrics=("mae", "r2"), cv_folds=5,
+            dataset_id="line",
+        )  # fmt: skip
+        result = run_experiment(self.store, config, line_table(), "y", environment=ENV)
+        self.assertAlmostEqual(result.metrics["mae"], 0.0, places=8)
+        self.assertAlmostEqual(result.metrics["r2"], 1.0, places=8)
+        self.assertAlmostEqual(result.metrics["r2_std"], 0.0, places=8)
+        self.assertNotIn("confusion_matrix", self.store.get_run(result.run_id).tags)
+        self.assertEqual(result.n_test, 40)
+
+    def test_problems_are_found_before_any_run_exists(self):
+        table = Table(("x", "label"), (("0", "a"), ("1", "a"), ("2", "a"), ("3", "a"), ("9", "b")))
+        with self.assertRaisesRegex(RunnerError, "test split"):  # a fold without class b
+            self.run_it(self.cv_config(metrics=("roc_auc",), stratify=False, cv_folds=5), table)
+        with self.assertRaises(DatasetError):
+            self.run_it(self.cv_config(cv_folds=50), table)  # more folds than rows
+        self.assertNoRunsCreated()
+
+    def test_a_failure_in_a_later_fold_fails_the_run(self):
+        calls = []
+        real_fit = KNNClassifier.fit
+
+        def flaky(self, X, y):
+            calls.append(1)
+            if len(calls) == 3:
+                raise ModelError("fold exploded")
+            return real_fit(self, X, y)
+
+        with (
+            mock.patch.object(KNNClassifier, "fit", flaky),
+            self.assertRaisesRegex(ModelError, "fold exploded"),
+        ):
+            self.run_it(self.cv_config())
+        (run,) = self.store.list_runs()
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(self.store.final_metrics(run.run_id), {})
 
 
 if __name__ == "__main__":

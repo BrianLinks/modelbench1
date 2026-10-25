@@ -9,6 +9,11 @@ All notable changes to this project are documented here.
   precision, recall, and F1 as experiment metrics, with hand-computed tests.
 - Confusion matrix per classification run (`confusion_matrix` tag), printed by `show` and drawn as
   a heatmap on the dashboard's run page.
+- k-fold cross-validation (`cv_folds`): per-fold metric series, mean and standard deviation,
+  pooled confusion matrix, per-fold model seeds, stratified folds.
+
+### Fixed
+- Reproducibility checks no longer compare per-fold metric series the re-run does not return.
 
 ## [0.1.0] - 2026-10-25
 

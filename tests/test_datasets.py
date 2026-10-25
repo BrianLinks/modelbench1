@@ -6,7 +6,9 @@ from collections import Counter
 from pathlib import Path
 
 from modelbench.datasets import (
+    MAX_FOLDS,
     Table,
+    kfold_indices,
     make_version,
     read_csv,
     resolve_input_file,
@@ -14,7 +16,7 @@ from modelbench.datasets import (
     split_table,
     table_digest,
 )
-from modelbench.errors import DatasetError, IdentifierError
+from modelbench.errors import DatasetError, IdentifierError, SeedError
 
 SMALL = Table(("a", "b"), (("1", "2"), ("3", "4")))
 
@@ -230,6 +232,73 @@ class SplitTableTests(unittest.TestCase):
     def test_unknown_stratify_column(self):
         with self.assertRaises(DatasetError):
             split_table(self.TABLE, 0.3, seed=5, stratify_column="nope")
+
+
+class KFoldTests(unittest.TestCase):
+    def test_two_rows_two_folds_by_hand(self):
+        folds = kfold_indices(2, 2, seed=1)
+        self.assertEqual(sorted(folds), [([0], [1]), ([1], [0])])
+
+    def test_fold_sizes_differ_by_at_most_one_and_cover_every_row_once(self):
+        folds = kfold_indices(10, 3, seed=4)
+        self.assertEqual(sorted(len(test) for _, test in folds), [3, 3, 4])
+        seen = [i for _, test in folds for i in test]
+        self.assertEqual(sorted(seen), list(range(10)))
+        for train, test in folds:
+            self.assertEqual(train, sorted(train))
+            self.assertEqual(test, sorted(test))
+            self.assertEqual(sorted(train + test), list(range(10)))
+            self.assertFalse(set(train) & set(test))
+
+    def test_deterministic_and_seed_dependent(self):
+        self.assertEqual(kfold_indices(30, 5, 7), kfold_indices(30, 5, 7))
+        self.assertNotEqual(kfold_indices(30, 5, 7), kfold_indices(30, 5, 8))
+
+    def test_global_random_state_is_untouched(self):
+        random.seed(5)
+        expected = [random.random() for _ in range(3)]
+        random.seed(5)
+        kfold_indices(30, 5, 7)
+        self.assertEqual([random.random() for _ in range(3)], expected)
+
+    def test_stratified_folds_keep_class_balance(self):
+        labels = ["a"] * 6 + ["b"] * 6
+        for _, test in kfold_indices(12, 3, 2, labels):
+            self.assertEqual(Counter(labels[i] for i in test), {"a": 2, "b": 2})
+
+    def test_stratified_counts_differ_by_at_most_one_with_uneven_classes(self):
+        labels = ["a"] * 7 + ["b"] * 5 + ["c"] * 1
+        folds = kfold_indices(13, 3, 9, labels)
+        for cls in "abc":
+            counts = [sum(labels[i] == cls for i in test) for _, test in folds]
+            self.assertLessEqual(max(counts) - min(counts), 1, cls)
+        sizes = [len(test) for _, test in folds]
+        self.assertLessEqual(max(sizes) - min(sizes), 1)
+
+    def test_random_inputs_always_partition(self):
+        rng = random.Random(11)
+        for _ in range(60):
+            n = rng.randint(2, 40)
+            k = rng.randint(2, min(n, 12))
+            labels = [rng.choice("xyz") for _ in range(n)] if rng.random() < 0.5 else None
+            folds = kfold_indices(n, k, rng.randint(0, 99), labels)
+            self.assertEqual(len(folds), k)
+            tests = sorted(i for _, test in folds for i in test)
+            self.assertEqual(tests, list(range(n)))
+            self.assertTrue(all(test and train for train, test in folds))
+
+    def test_validation(self):
+        bad = [
+            dict(n=1, folds=2), dict(n=True, folds=2), dict(n=10, folds=1),
+            dict(n=10, folds=51), dict(n=10, folds=True), dict(n=10, folds=2.0),
+            dict(n=3, folds=4), dict(n=4, folds=2, stratify=["a"] * 3),
+        ]  # fmt: skip
+        for kwargs in bad:
+            with self.subTest(kwargs=kwargs), self.assertRaises(DatasetError):
+                kfold_indices(seed=1, **kwargs)
+        with self.assertRaises(SeedError):
+            kfold_indices(4, 2, seed=-1)
+        self.assertEqual(MAX_FOLDS, 50)
 
 
 if __name__ == "__main__":

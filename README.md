@@ -236,6 +236,19 @@ What it will and will not do:
   forbids scripts, remote loads, and framing.
 - Stop it with Ctrl-C.
 
+## Cross-validation
+
+Set `cv_folds` (2 to 50) in the config to score a model with k-fold cross-validation instead of a
+single split. Rows are shuffled with the run's seed and dealt into folds (stratified by class when
+`stratify` is true). Every row is tested exactly once, and each fold gets its own model seed.
+
+- `fold/<metric>` is the per-fold series (step = fold number).
+- `<metric>` is the mean over folds and `<metric>_std` the population standard deviation; for
+  `_std` metrics smaller is better, so `compare` ranks them that way.
+- Tags: `cv_folds`, `n_test` (all rows) and `n_train` (the largest training set). The confusion
+  matrix is pooled over all folds, and `predictions.json` holds one entry per fold.
+- Reproducibility checks compare the predictions hash and the summary metrics.
+
 ## Confusion matrices
 
 Every classification run records its test-split confusion matrix as the tag `confusion_matrix`

@@ -110,7 +110,9 @@ def check_reproducibility(
     expected_hash = record.tags.get("predictions_sha256")
     if expected_hash is None:
         raise ReproError(f"run {run_id} recorded no predictions hash, so it cannot be checked")
-    original = store.final_metrics(run_id)
+    # Per-fold series (`fold/<name>`) are covered by the predictions hash; the re-run returns
+    # only the summary metrics, so those are what get compared.
+    original = {k: v for k, v in store.final_metrics(run_id).items() if not k.startswith("fold/")}
     config = store.get_config(run_id)
     current_env = dict(environment) if environment is not None else environment_fingerprint()
     env_diffs = tuple(compare_environments(record.environment, current_env))

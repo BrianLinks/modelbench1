@@ -86,6 +86,14 @@ class DirectionTests(unittest.TestCase):
             higher_is_better("custom_score")
 
 
+class CrossValidationDirectionTests(unittest.TestCase):
+    def test_spread_across_folds_is_better_when_smaller(self):
+        self.assertFalse(higher_is_better("accuracy_std"))
+        self.assertFalse(higher_is_better("fold/r2_std"))
+        self.assertTrue(higher_is_better("fold/accuracy"))
+        self.assertFalse(higher_is_better("fold/mae"))
+
+
 class CompareMetricsTests(unittest.TestCase):
     def test_deltas_relative_change_and_improvement(self):
         old = {"accuracy": 0.8, "log_loss": 0.5, "custom": 1.0, "only_old": 1.0}

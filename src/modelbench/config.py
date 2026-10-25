@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from .datasets import MAX_FOLDS
 from .errors import ConfigError
 from .ids import validate_id
 from .seeding import check_seed
@@ -51,6 +52,7 @@ _CONFIG_KEYS = {
     "dataset_version",
     "test_fraction",
     "stratify",
+    "cv_folds",
 }
 _REQUIRED_KEYS = ("experiment_id", "model", "seed", "dataset_id", "metrics")
 
@@ -95,6 +97,7 @@ class ExperimentConfig:
     dataset_version: str | None = None
     test_fraction: float = 0.2
     stratify: bool = False
+    cv_folds: int | None = None
 
     def __post_init__(self) -> None:
         validate_id("experiment", self.experiment_id)
@@ -113,6 +116,11 @@ class ExperimentConfig:
             raise ConfigError(f"test_fraction must be strictly between 0 and 1, got {fraction}")
         if not isinstance(self.stratify, bool):
             raise ConfigError("stratify must be true or false")
+        folds = self.cv_folds
+        if folds is not None and (
+            isinstance(folds, bool) or not isinstance(folds, int) or not 2 <= folds <= MAX_FOLDS
+        ):
+            raise ConfigError(f"cv_folds must be null or a whole number from 2 to {MAX_FOLDS}")
         if not isinstance(self.metrics, tuple) or not self.metrics:
             raise ConfigError("metrics must be a non-empty tuple of metric names")
         unknown = [m for m in self.metrics if m not in KNOWN_METRICS]
@@ -126,7 +134,7 @@ class ExperimentConfig:
         object.__setattr__(self, "params", copy.deepcopy(self.params))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "experiment_id": self.experiment_id,
             "model": self.model,
             "seed": self.seed,
@@ -137,6 +145,9 @@ class ExperimentConfig:
             "test_fraction": self.test_fraction,
             "stratify": self.stratify,
         }
+        if self.cv_folds is not None:  # absent when unused, so older configs keep their hash
+            data["cv_folds"] = self.cv_folds
+        return data
 
     def canonical_json(self) -> str:
         """Stable text form of the settings that affect results (everything but the label)."""
@@ -176,6 +187,7 @@ class ExperimentConfig:
             dataset_version=data.get("dataset_version"),
             test_fraction=data.get("test_fraction", 0.2),
             stratify=data.get("stratify", False),
+            cv_folds=data.get("cv_folds"),
         )
 
     @classmethod

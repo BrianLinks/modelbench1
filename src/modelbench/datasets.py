@@ -184,6 +184,59 @@ def split_indices(
     return sorted(train), sorted(test)
 
 
+MAX_FOLDS = 50
+
+
+def kfold_indices(
+    n: int,
+    folds: int,
+    seed: int,
+    stratify: Sequence[Hashable] | None = None,
+) -> list[tuple[list[int], list[int]]]:
+    """Deterministic k-fold splits: a list of sorted (train, test) index lists, one per fold.
+
+    Every row is in exactly one test fold. Fold sizes differ by at most one. With `stratify`
+    (one label per row) each class is shuffled and dealt across the folds in turn, so every class
+    count also differs by at most one between folds. The result depends only on the arguments.
+    """
+    if isinstance(n, bool) or not isinstance(n, int) or n < 2:
+        raise DatasetError(f"need at least 2 rows to split, got {n!r}")
+    if isinstance(folds, bool) or not isinstance(folds, int) or not 2 <= folds <= MAX_FOLDS:
+        raise DatasetError(f"folds must be a whole number from 2 to {MAX_FOLDS}, got {folds!r}")
+    if folds > n:
+        raise DatasetError(f"cannot make {folds} folds from {n} rows")
+    check_seed(seed)
+
+    assignment = [0] * n
+    if stratify is None:
+        rng = rng_for(seed, "kfold", "random")
+        order = list(range(n))
+        rng.shuffle(order)
+        for position, index in enumerate(order):
+            assignment[index] = position % folds
+    else:
+        if len(stratify) != n:
+            raise DatasetError(f"stratify has {len(stratify)} labels for {n} rows")
+        groups: dict[Hashable, list[int]] = {}
+        for index, label in enumerate(stratify):
+            groups.setdefault(label, []).append(index)
+        rng = rng_for(seed, "kfold", "stratified")
+        dealt = 0
+        for label in sorted(groups, key=lambda k: (type(k).__name__, repr(k))):
+            members = groups[label]
+            rng.shuffle(members)
+            for index in members:
+                assignment[index] = dealt % folds
+                dealt += 1
+
+    result: list[tuple[list[int], list[int]]] = []
+    for fold in range(folds):
+        test = [i for i in range(n) if assignment[i] == fold]
+        train = [i for i in range(n) if assignment[i] != fold]
+        result.append((train, test))
+    return result
+
+
 def split_table(
     table: Table,
     test_fraction: float,

@@ -43,6 +43,8 @@ MAX_RESAMPLES = 100_000
 def higher_is_better(metric: str) -> bool:
     """Direction for a metric, from its base name (the part after the last '/')."""
     base = metric.rsplit("/", 1)[-1]
+    if base.endswith("_std"):  # the spread across cross-validation folds: smaller is steadier
+        return False
     try:
         return HIGHER_IS_BETTER[base]
     except KeyError:

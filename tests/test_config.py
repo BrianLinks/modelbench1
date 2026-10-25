@@ -235,5 +235,34 @@ class GridTests(unittest.TestCase):
         self.assertEqual(replace(configs[0], params={"metric": "l2", "k": 1}), configs[0])
 
 
+class CrossValidationConfigTests(unittest.TestCase):
+    def test_default_is_none_and_leaves_the_dict_and_hash_alone(self):
+        config = make()
+        self.assertIsNone(config.cv_folds)
+        self.assertNotIn("cv_folds", config.to_dict())
+        self.assertNotIn("cv_folds", config.canonical_json())
+
+    def test_value_is_stored_hashed_and_round_trips(self):
+        config = make(cv_folds=5)
+        self.assertEqual(config.to_dict()["cv_folds"], 5)
+        self.assertNotEqual(config.config_hash(), make().config_hash())
+        self.assertNotEqual(config.config_hash(), make(cv_folds=4).config_hash())
+        self.assertEqual(ExperimentConfig.from_dict(config.to_dict()), config)
+        self.assertEqual(ExperimentConfig.from_dict(make().to_dict()), make())
+
+    def test_validation(self):
+        for bad in (1, 0, -3, 51, True, 2.0, "5"):
+            with self.subTest(bad=bad), self.assertRaises(ConfigError):
+                make(cv_folds=bad)
+        self.assertEqual(make(cv_folds=2).cv_folds, 2)
+        self.assertEqual(make(cv_folds=50).cv_folds, 50)
+
+    def test_loads_from_a_dict_and_survives_a_parameter_grid(self):
+        data = make().to_dict() | {"cv_folds": 3}
+        self.assertEqual(ExperimentConfig.from_dict(data).cv_folds, 3)
+        variants = expand_config(make(cv_folds=3, params={}), {"k": [1, 5]})
+        self.assertEqual([v.cv_folds for v in variants], [3, 3])
+
+
 if __name__ == "__main__":
     unittest.main()
