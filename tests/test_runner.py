@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 from unittest import mock
 
+from modelbench import confusion
 from modelbench.config import ExperimentConfig
 from modelbench.datasets import Table, make_version, split_indices
 from modelbench.errors import DatasetError, ModelError, RunnerError, StoreError
@@ -670,6 +671,62 @@ class ExtraMetricTests(RunnerTestCase):
         with self.assertRaisesRegex(RunnerError, "do not apply to a regression"):
             self.run_it(make_config(model="mean", params={}, metrics=("mcc",)), line_table())
         self.assertNoRunsCreated()
+
+
+class ConfusionMatrixTagTests(RunnerTestCase):
+    def test_classification_runs_record_the_test_matrix(self):
+        result = self.run_it()
+        tag = self.store.get_run(result.run_id).tags["confusion_matrix"]
+        self.assertEqual(tag, '{"labels":["a","b"],"matrix":[[5,0],[0,3]]}')  # 8 test rows
+
+    def test_the_matrix_matches_the_stored_predictions(self):
+        config = make_config(model="majority", params={})
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.run_it(config, artifact_dir=tmp)
+            saved = json.loads((Path(tmp) / result.run_id / "predictions.json").read_text())
+        cm = confusion.from_tag(self.store.get_run(result.run_id).tags["confusion_matrix"])
+        pairs = list(zip(saved["y_true"], saved["y_pred"], strict=True))
+        for i, true in enumerate(cm.labels):
+            for j, pred in enumerate(cm.labels):
+                self.assertEqual(cm.matrix[i][j], pairs.count((true, pred)))
+        self.assertEqual(cm.total, 8)
+
+    def test_a_label_predicted_but_absent_from_the_test_split_still_gets_a_row(self):
+        table = three_class_table()
+        result = self.run_it(make_config(model="majority", params={}), table)
+        cm = confusion.from_tag(self.store.get_run(result.run_id).tags["confusion_matrix"])
+        self.assertEqual(cm.total, result.n_test)
+        self.assertEqual(cm.labels, ("a", "b", "c")[: len(cm.labels)])
+
+    def test_a_training_class_missing_from_the_test_split_keeps_its_row(self):
+        rows = [(str(i), "a") for i in range(20)] + [(str(i + 20), "b") for i in range(20)]
+        rows += [("100", "c"), ("101", "c")]
+        table = Table(("x", "label"), tuple(rows))
+        for seed in range(200):
+            config = make_config(model="majority", params={}, test_fraction=0.1, seed=seed)
+            train, test = expected_split(config, table)
+            labels = table.column("label")
+            if "c" in {labels[i] for i in train} and "c" not in {labels[i] for i in test}:
+                result = self.run_it(config, table)
+                cm = confusion.from_tag(self.store.get_run(result.run_id).tags["confusion_matrix"])
+                self.assertEqual(cm.labels, ("a", "b", "c"))
+                self.assertEqual(cm.matrix[2], (0, 0, 0))  # no true c rows, and none predicted
+                self.assertEqual(cm.total, result.n_test)
+                return
+        self.fail("no seed left class c out of the test split")  # pragma: no cover
+
+    def test_regression_runs_have_no_matrix(self):
+        run = RegressionRunTests()
+        run.setUp()
+        self.addCleanup(run.store.close)
+        result = run.run_reg(run.reg_config())
+        self.assertNotIn("confusion_matrix", run.store.get_run(result.run_id).tags)
+
+    def test_a_matrix_too_big_for_a_tag_is_left_out_without_failing_the_run(self):
+        with mock.patch("modelbench.runner.confusion.to_tag", return_value=None):
+            result = self.run_it()
+        self.assertNotIn("confusion_matrix", self.store.get_run(result.run_id).tags)
+        self.assertEqual(self.store.get_run(result.run_id).status, "completed")
 
 
 if __name__ == "__main__":

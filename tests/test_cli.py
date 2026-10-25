@@ -596,6 +596,32 @@ class ErrorHandlingTests(CliTestCase):
         self.assertEqual(code, 2)
 
 
+class ShowMatrixTests(CliTestCase):
+    def test_show_prints_the_matrix_as_a_grid_instead_of_a_raw_tag(self):
+        self.run_experiment()
+        code, out, err = self.cli("show", "run-000001")
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("matrix  true/pred  a b", out)
+        self.assertIn("matrix  a          5 0", out)
+        self.assertIn("matrix  b          0 3", out)
+        self.assertNotIn("confusion_matrix=", out)
+        self.assertIn("tag     n_test=8", out)
+
+    def test_show_json_keeps_the_raw_tag(self):
+        self.run_experiment()
+        run = json.loads(self.cli("show", "run-000001", "--json")[1])
+        self.assertIn("confusion_matrix", run["tags"])
+
+    def test_a_damaged_tag_does_not_break_show(self):
+        self.run_experiment()
+        with Store(self.db) as store:
+            store._conn.execute("UPDATE tags SET value = '{oops' WHERE key = 'confusion_matrix'")
+            store._conn.commit()
+        code, out, _ = self.cli("show", "run-000001")
+        self.assertEqual(code, 0)
+        self.assertIn("matrix  unreadable:", out)
+
+
 class ImportCommandTests(CliTestCase):
     def setUp(self):
         super().setUp()

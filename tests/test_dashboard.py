@@ -23,7 +23,7 @@ from modelbench.dashboard import (
     make_server,
     serve,
 )
-from modelbench.datasets import Table
+from modelbench.datasets import Table, make_version
 from modelbench.errors import DashboardError, StoreError
 from modelbench.runner import run_experiment
 from modelbench.store import Store
@@ -132,7 +132,7 @@ class RunPageTests(DashboardTestCase):
         expected += ["accuracy", "1.0000", "predictions_sha256", "python", "3.12.1"]
         for text in expected:
             self.assertIn(text, body)
-        self.assertNotIn("<svg", body)  # one point per metric: no line chart
+        self.assertNotIn("<polyline", body)  # one point per metric: no line chart
         self.assertIn('href="/api/run/run-000001"', body)
 
     def test_failed_run_shows_escaped_error(self):
@@ -485,6 +485,61 @@ class RegressionRunsTests(unittest.TestCase):
             self.assertEqual(data["baseline"], "run-000001")
             self.assertAlmostEqual(data["values"]["run-000001"]["r2"], 1.0, places=8)
             self.assertLess(data["values"]["run-000002"]["r2"], 0.2)
+
+
+class ConfusionHeatmapTests(unittest.TestCase):
+    def cm(self):
+        from modelbench.metrics import ConfusionMatrix
+
+        return ConfusionMatrix(("a", "b"), ((3, 1), (0, 4)))
+
+    def test_one_cell_per_entry_with_counts_and_row_shares(self):
+        svg = dashboard.confusion_heatmap(self.cm())
+        self.assertEqual(svg.count('class="cell"'), 4)
+        self.assertIn('viewBox="0 0 210 156"', svg)  # 110 + 2 * 46 + 8 wide, 56 + 2 * 46 + 8 high
+        for count in ("3", "1", "0", "4"):
+            self.assertIn('class="count"', svg)
+            self.assertRegex(svg, rf'text-anchor="middle">{count}</text>')
+        self.assertIn("true a, predicted a: 3 (75% of the row)", svg)
+        self.assertIn("true b, predicted b: 4 (100% of the row)", svg)
+        self.assertIn('fill-opacity="0.080"', svg)  # the empty cell is faint, not invisible
+
+    def test_shade_follows_the_row_share(self):
+        svg = dashboard.confusion_heatmap(self.cm())
+        # 75% of the row -> 0.08 + 0.92 * 0.75 = 0.77; 100% -> 1.0
+        self.assertIn('fill-opacity="0.770"', svg)
+        self.assertIn('fill-opacity="1.000"', svg)
+
+    def test_labels_are_escaped_and_long_ones_shortened(self):
+        from modelbench.metrics import ConfusionMatrix
+
+        hostile = XSS + "x" * 30
+        svg = dashboard.confusion_heatmap(ConfusionMatrix((hostile, "b"), ((1, 0), (0, 1))))
+        self.assertNotIn("<script>", svg)
+        self.assertIn("&lt;script&gt;", svg)
+        self.assertIn("...", svg)  # shortened on the axis, whole in the tooltip
+
+    def test_run_page_draws_it_and_hides_the_raw_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "m.db"
+            with Store(db) as store:
+                run_experiment(store, config(), blobs(), "label", environment=ENV)
+            page = handle(db, "/run/run-000001", "127.0.0.1:8765", True).body
+        self.assertIn("<h2>Confusion matrix</h2>", page)
+        self.assertEqual(page.count('class="cell"'), 4)
+        self.assertNotIn("confusion_matrix</th>", page)  # shown as a picture, not a JSON tag
+
+    def test_a_damaged_tag_is_reported_not_fatal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "m.db"
+            with Store(db) as store:
+                run_id = store.create_run(config(), make_version("blobs", blobs(), "label"), ENV)
+                store.set_tag(run_id, "confusion_matrix", "{broken")
+                store.finish_run(run_id)
+            response = handle(db, f"/run/{run_id}", "127.0.0.1:8765", True)
+        self.assertEqual(response.status, 200)
+        self.assertIn('class="bad"', response.body)
+        self.assertIn("not valid JSON", response.body)
 
 
 if __name__ == "__main__":

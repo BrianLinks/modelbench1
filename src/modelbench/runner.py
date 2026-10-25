@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import confusion
 from . import metrics as m
 from .config import ExperimentConfig
 from .datasets import DatasetVersion, Table, make_version, split_indices
@@ -147,6 +148,11 @@ def _execute(
     store.set_tag(run_id, "n_train", str(len(train_idx)))
     store.set_tag(run_id, "n_test", str(len(test_idx)))
     store.set_tag(run_id, "predictions_sha256", digest)
+    if not isinstance(model, Regressor):
+        labels = m.ordered_labels(list(model.classes_), y_true, y_pred)
+        matrix_tag = confusion.to_tag(m.confusion_matrix(y_true, y_pred, labels))
+        if matrix_tag is not None:
+            store.set_tag(run_id, confusion.TAG, matrix_tag)
     if model_seed is not None:
         store.set_tag(run_id, "model_seed", str(model_seed))
     if artifact_dir is not None:

@@ -26,8 +26,10 @@ from pathlib import Path
 from typing import Any, TextIO
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
-from .errors import DashboardError, ModelBenchError, StoreError
+from . import confusion
+from .errors import DashboardError, MetricError, ModelBenchError, StoreError
 from .export import export_runs
+from .metrics import ConfusionMatrix
 from .run_comparison import RunComparison, compare_runs
 from .store import STATUSES, Store
 
@@ -146,6 +148,50 @@ def line_chart(title: str, points: Sequence[tuple[int, float]], width: int = 560
     )
 
 
+def confusion_heatmap(cm: ConfusionMatrix, title: str = "Confusion matrix") -> str:
+    """Rows are true labels, columns predicted. Each cell is shaded by its share of its row, so
+    the diagonal shows per-class recall at a glance; the count is written in the cell."""
+    n = len(cm.labels)
+    cell, left, top = 46, 110, 56
+    width, height = left + n * cell + 8, top + n * cell + 8
+    fractions = confusion.row_fractions(cm)
+
+    def short(label: object) -> str:
+        text = str(label)
+        return text if len(text) <= 14 else text[:13] + "..."
+
+    parts = [
+        f'<svg class="chart" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+        f'aria-label="{esc(title)}"><title>{esc(title)}</title>'
+        f'<text class="axis" x="{left}" y="12">predicted</text>'
+        f'<text class="axis" x="4" y="{top - 8}">true</text>'
+    ]
+    for j, label in enumerate(cm.labels):
+        x = left + j * cell + cell / 2
+        parts.append(
+            f'<text class="axis" x="{x:.1f}" y="{top - 8}" text-anchor="middle">'
+            f"{esc(short(label))}<title>{esc(label)}</title></text>"
+        )
+    for i, label in enumerate(cm.labels):
+        y = top + i * cell
+        parts.append(
+            f'<text class="axis" x="{left - 8}" y="{y + cell / 2 + 4:.1f}" text-anchor="end">'
+            f"{esc(short(label))}<title>{esc(label)}</title></text>"
+        )
+        for j, count in enumerate(cm.matrix[i]):
+            share = fractions[i][j]
+            parts.append(
+                f'<rect class="cell" x="{left + j * cell}" y="{y}" width="{cell}" height="{cell}" '
+                f'fill-opacity="{0.08 + 0.92 * share:.3f}">'
+                f"<title>true {esc(label)}, predicted {esc(cm.labels[j])}: {count} "
+                f"({share:.0%} of the row)</title></rect>"
+                f'<text class="count" x="{left + j * cell + cell / 2}" y="{y + cell / 2 + 5:.1f}" '
+                f'text-anchor="middle">{count}</text>'
+            )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 # -- pages ----------------------------------------------------------------------------------
 
 _CSS = """
@@ -167,6 +213,7 @@ table+table,p+table{margin-top:1em}form{margin:.6em 0 1em}
 .chart{max-width:100%;height:auto}.bar,.dot{fill:var(--bar)}
 .line{fill:none;stroke:var(--bar);stroke-width:2}.zero{stroke:var(--muted);stroke-width:1}
 .axis{fill:var(--muted);font-size:12px}
+.cell{fill:var(--bar);stroke:var(--line)}.count{fill:var(--fg);font-size:13px}
 pre{white-space:pre-wrap;word-break:break-word;margin:0}
 """
 
@@ -291,8 +338,17 @@ def render_run(store: Store, run_id: str) -> str:
             chart = line_chart(f"{name} by step", pts)
             if chart:
                 body.append(f"<h2>{esc(name)} over steps</h2>{chart}")
-    if run["tags"]:
-        body.append("<h2>Tags</h2>" + _kv([(k, esc(v)) for k, v in run["tags"].items()]))
+    matrix_text = run["tags"].get(confusion.TAG)
+    if matrix_text is not None:
+        try:
+            body.append(
+                "<h2>Confusion matrix</h2>" + confusion_heatmap(confusion.from_tag(matrix_text))
+            )
+        except MetricError as exc:
+            body.append(f'<h2>Confusion matrix</h2><p class="bad">{esc(exc)}</p>')
+    tags = {k: v for k, v in run["tags"].items() if k != confusion.TAG}
+    if tags:
+        body.append("<h2>Tags</h2>" + _kv([(k, esc(v)) for k, v in tags.items()]))
     if run["artifacts"]:
         rows = "".join(
             f"<tr><td>{esc(a['name'])}</td><td>{esc(a['kind'])}</td>"

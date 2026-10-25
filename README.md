@@ -236,6 +236,16 @@ What it will and will not do:
   forbids scripts, remote loads, and framing.
 - Stop it with Ctrl-C.
 
+## Confusion matrices
+
+Every classification run records its test-split confusion matrix as the tag `confusion_matrix`
+(compact JSON, rows are true labels and columns predicted labels; it includes every class seen
+in training, even one that never shows up in the test split). A matrix that would not fit in a
+2000-character tag is left out and the run is unaffected. `modelbench show RUN` prints it as a
+grid, and the dashboard's run page draws it as a heatmap shaded by each cell's share of its row,
+so the diagonal reads as per-class recall. The tag travels with `export` and `import` like any
+other. Regression runs have none.
+
 ## Notes and export
 
 ```python

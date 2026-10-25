@@ -16,10 +16,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from . import confusion
 from .config import ExperimentConfig
 from .dashboard import DEFAULT_PORT, serve
 from .datasets import make_version, read_csv
-from .errors import CliError, ModelBenchError
+from .errors import CliError, MetricError, ModelBenchError
 from .export import export_json, export_metrics_csv, export_runs, write_text_atomic
 from .importer import import_runs_json, parse_document, parse_runs, read_import_file
 from .models import all_models, model_kind
@@ -183,6 +184,13 @@ def cmd_show(args: argparse.Namespace) -> int:
     for point in run["metrics"]:
         print(f"metric  {point['name']} (step {point['step']})  {_fmt(point['value'])}")
     for key, value in run["tags"].items():
+        if key == confusion.TAG:
+            try:
+                for line in confusion.format_text(confusion.from_tag(value), "matrix  "):
+                    print(_safe(line))
+            except MetricError as exc:
+                print(f"matrix  unreadable: {_safe(exc)}")
+            continue
         print(f"tag     {_safe(key)}={_safe(value)}")
     for artifact in run["artifacts"]:
         print(f"file    {artifact['name']}  {artifact['size_bytes']} bytes  {artifact['sha256']}")
