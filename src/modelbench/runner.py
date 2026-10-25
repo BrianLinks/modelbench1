@@ -77,8 +77,7 @@ def run_experiment(
     )
     train_labels = [y[i] for i in train_idx]
     test_labels = [y[i] for i in test_idx]
-    if kind == "classification":
-        _check_split_for_metrics(config.metrics, train_labels, test_labels)
+    _check_split_for_metrics(config.metrics, train_labels, test_labels)  # no-op for regression
     model, model_seed = _build_model(config)
 
     if reuse_existing:

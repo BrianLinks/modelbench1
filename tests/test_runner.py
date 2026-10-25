@@ -10,7 +10,9 @@ from unittest import mock
 from modelbench.config import ExperimentConfig
 from modelbench.datasets import Table, make_version, split_indices
 from modelbench.errors import DatasetError, ModelError, RunnerError, StoreError
-from modelbench.runner import run_experiment
+from modelbench.models import REGRESSORS
+from modelbench.models.mean import MeanRegressor
+from modelbench.runner import _check_metrics, run_experiment
 from modelbench.seeding import derive_seed
 from modelbench.store import Store
 
@@ -592,6 +594,31 @@ class RegressionRunTests(RunnerTestCase):
         ridge = self.run_reg(self.reg_config(experiment_id="r", params={"l2": 5.0}))
         self.assertNotEqual(plain.predictions_sha256, ridge.predictions_sha256)
         self.assertGreater(ridge.metrics["mae"], plain.metrics["mae"])
+
+    def test_metric_errors_name_the_problem(self):
+        with self.assertRaisesRegex(RunnerError, "do not apply to a regression"):
+            self.run_reg(self.reg_config(metrics=("accuracy",)))
+        with self.assertRaisesRegex(RunnerError, "do not apply to a classification"):
+            self.run_it(make_config(metrics=("rmse",)))
+        for kind in ("classification", "regression"):
+            with self.assertRaisesRegex(RunnerError, "unsupported metric"):
+                _check_metrics(("not_a_metric",), kind)
+
+    def test_regressor_with_a_seed_parameter_gets_a_derived_seed(self):
+        class Seeded(MeanRegressor):
+            name = "seeded_mean"
+
+            def __init__(self, seed=0):
+                super().__init__()
+                self.seed = seed
+
+            def get_params(self):
+                return {"seed": self.seed}
+
+        with mock.patch.dict(REGRESSORS, {"seeded_mean": Seeded}):
+            result = self.run_reg(self.reg_config(model="seeded_mean", metrics=("mae",)))
+        record = self.store.get_run(result.run_id)
+        self.assertEqual(record.tags["model_seed"], str(derive_seed(7, "model")))
 
 
 if __name__ == "__main__":

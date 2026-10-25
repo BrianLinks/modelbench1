@@ -104,6 +104,39 @@ class LinearRegressionTests(unittest.TestCase):
         model.fit(X, y)
         self.assertTrue(all(math.isfinite(v) for v in model.predict(X)))
 
+    def test_ridge_penalises_every_weight_equally(self):
+        # two uncorrelated standardised features, y = z1 + z2: each weight is 1 / (1 + l2)
+        X = [[-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0], [1.0, 1.0]]
+        model = LinearRegression(l2=1.0)
+        model.fit(X, [-2.0, 0.0, 0.0, 2.0])
+        self.assertAlmostEqual(model.coef_[0], 0.5)
+        self.assertAlmostEqual(model.coef_[1], 0.5)
+
+    def test_nearly_dependent_features_are_refused_without_a_penalty(self):
+        a = [float(i) for i in range(10)]
+        X = [[v, v + 1e-7 * (-1) ** i] for i, v in enumerate(a)]
+        with self.assertRaises(ModelError):
+            LinearRegression().fit(X, a)
+
+    def test_strongly_correlated_features_are_still_solved(self):
+        rng = random.Random(0)
+        a = [float(i) for i in range(10)]
+        X = [[v, v + rng.gauss(0, 0.09)] for v in a]  # correlation about 0.9997
+        y = [2 * r[0] - r[1] + 3 for r in X]
+        model = LinearRegression()
+        model.fit(X, y)
+        self.assertAlmostEqual(model.coef_[0], 2.0, places=6)
+        self.assertAlmostEqual(model.coef_[1], -1.0, places=6)
+
+    def test_column_constant_up_to_rounding_is_ignored(self):
+        # the mean of six 0.1s is not exactly 0.1, so the column's sd is about 1e-17, not 0
+        X = [[float(i), 0.1] for i in range(6)]
+        model = LinearRegression()
+        model.fit(X, [2.0 * i + 1 for i in range(6)])
+        self.assertEqual(model.coef_[1], 0.0)
+        self.assertAlmostEqual(model.coef_[0], 2.0)
+        self.assertAlmostEqual(model.predict([[10.0, 1e300]])[0], 21.0)
+
     def test_fit_is_deterministic(self):
         X = [[math.sin(i), i % 5] for i in range(20)]
         y = [i * 0.3 for i in range(20)]

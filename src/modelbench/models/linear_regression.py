@@ -91,7 +91,7 @@ class LinearRegression(Regressor):
             for a in range(k)
         ]
         rhs = [math.fsum(r[a] * t for r, t in zip(Z, centred, strict=True)) / n for a in range(k)]
-        solved = cholesky_solve(gram, rhs) if k else []
+        solved = cholesky_solve(gram, rhs)
         weights = [0.0] * d
         for position, j in enumerate(active):
             weights[j] = solved[position]
