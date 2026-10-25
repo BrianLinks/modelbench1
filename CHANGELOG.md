@@ -37,6 +37,8 @@ All notable changes to this project are documented here.
 - Regression: `Regressor` interface, `mean` baseline and `linear_regression` (ridge, closed form),
   a `REGRESSORS` registry with `model_kind`, and regression runs in `run_experiment` (numeric
   targets, regression metrics only, no stratify). `modelbench models` now shows each model's kind.
+- Samples: seeded `linear` regression generator (`make_linear`, known weights via
+  `linear_weights`) and the `sample linear --rows --features --noise` options.
 - Command line: `run`, `list`, `show`, `compare`, `repro`, `note`, `export`, `recover`,
   `dataset`, and `models`, with `--json` output and `python -m modelbench`.
 

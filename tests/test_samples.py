@@ -8,6 +8,7 @@ from pathlib import Path
 
 from modelbench.datasets import make_version, read_csv
 from modelbench.errors import SeedError
+from modelbench.models import create_regressor
 from modelbench.samples import (
     BASELINE_NOTE,
     DEMO_MAX_ROWS_PER_CLASS,
@@ -15,7 +16,10 @@ from modelbench.samples import (
     _number,
     available_samples,
     generate,
+    LINEAR_INTERCEPT,
+    linear_weights,
     make_blobs,
+    make_linear,
     make_moons,
     make_xor,
     run_demo,
@@ -123,6 +127,46 @@ class XorTests(unittest.TestCase):
         self.assertLessEqual(wrong, 6)  # a 0.2 spread rarely crosses an axis from a corner
 
 
+class LinearTests(unittest.TestCase):
+    def test_weights_follow_the_documented_pattern(self):
+        self.assertEqual(linear_weights(7), [1.0, -2.0, 3.0, -4.0, 5.0, -1.0, 2.0])
+        self.assertEqual(LINEAR_INTERCEPT, 4.0)
+
+    def test_without_noise_every_row_lies_on_the_plane(self):
+        table = make_linear(2, rows=50, features=3, noise=0.0)
+        self.assertEqual(table.columns, ("x1", "x2", "x3", "y"))
+        self.assertEqual(len(table), 50)
+        weights = linear_weights(3)
+        for *x, y in ([float(c) for c in row] for row in table.rows):
+            self.assertTrue(all(-5.0 <= v <= 5.0 for v in x))
+            self.assertAlmostEqual(y, 4.0 + sum(w * v for w, v in zip(weights, x)), delta=2e-6)
+        for row in table.rows:
+            self.assertTrue(all(CELL.fullmatch(cell) for cell in row), row)
+
+    def test_noise_has_the_requested_spread(self):
+        table = make_linear(3, rows=4000, features=1, noise=2.0)
+        residuals = [float(y) - (4.0 + float(x)) for x, y in table.rows]
+        mean = sum(residuals) / len(residuals)
+        sd = math.sqrt(sum((r - mean) ** 2 for r in residuals) / len(residuals))
+        self.assertAlmostEqual(sd, 2.0, delta=0.15)
+        self.assertAlmostEqual(mean, 0.0, delta=0.15)
+
+    def test_a_fitted_model_recovers_the_true_weights(self):
+        table = make_linear(5, rows=600, features=3, noise=1.0)
+        X = [[float(c) for c in row[:3]] for row in table.rows]
+        y = [float(row[3]) for row in table.rows]
+        model = create_regressor("linear_regression")
+        model.fit(X, y)
+        for got, want in zip(model.coef_, linear_weights(3), strict=True):
+            self.assertAlmostEqual(got, want, delta=0.1)
+        self.assertAlmostEqual(model.intercept_, 4.0, delta=0.2)
+
+    def test_csv_round_trip_and_defaults(self):
+        table = make_linear(1)
+        self.assertEqual((table.columns, len(table)), (("x1", "x2", "y"), 200))
+        self.assertEqual(generate("linear", 1), table)
+
+
 class DeterminismTests(unittest.TestCase):
     def test_same_seed_same_table_different_seed_different_table(self):
         for name in available_samples():
@@ -130,7 +174,7 @@ class DeterminismTests(unittest.TestCase):
             self.assertNotEqual(generate(name, 5).rows, generate(name, 6).rows, name)
 
     def test_rows_are_shuffled_not_grouped_by_class(self):
-        for name in available_samples():
+        for name in ("blobs", "moons", "xor"):
             labels = generate(name, 5).column("label")
             self.assertNotEqual(labels, sorted(labels), name)
 
@@ -147,12 +191,15 @@ class DeterminismTests(unittest.TestCase):
         # this Python build, and every stored run on that dataset would stop reproducing.
         golden = {
             "blobs": "588e5e0914fd",
+            "linear": "edee70153b88",
             "moons": "438b1454664d",
             "xor": "389fe30a9431",
         }
         for name, version in golden.items():
-            table = generate(name, 1, rows_per_class=10)
-            self.assertEqual(make_version("d", table, "label").version, version, name)
+            options = {"rows": 10} if name == "linear" else {"rows_per_class": 10}
+            table = generate(name, 1, **options)
+            target = "y" if name == "linear" else "label"
+            self.assertEqual(make_version("d", table, target).version, version, name)
 
 
 class ValidationTests(unittest.TestCase):
@@ -163,7 +210,7 @@ class ValidationTests(unittest.TestCase):
             generate("moons", 1, classes=3)
         with self.assertRaisesRegex(SamplesError, "does not take"):
             generate("blobs", 1, noise=0.1)
-        self.assertEqual(available_samples(), ("blobs", "moons", "xor"))
+        self.assertEqual(available_samples(), ("blobs", "linear", "moons", "xor"))
 
     def test_bad_values(self):
         bad = [
@@ -179,6 +226,11 @@ class ValidationTests(unittest.TestCase):
             ("moons", {"rows_per_class": 1}),
             ("blobs", {"rows_per_class": 20_000, "classes": 3, "features": 50}),
             ("xor", {"noise": float("nan")}), ("xor", {"rows_per_class": 60_000}),
+            ("linear", {"rows": 1}), ("linear", {"rows": True}), ("linear", {"features": 0}),
+            ("linear", {"features": 51}), ("linear", {"features": True}),
+            ("linear", {"noise": -1.0}), ("linear", {"noise": float("inf")}),
+            ("linear", {"rows": 100_001}), ("linear", {"rows": 50_000, "features": 50}),
+            ("linear", {"rows_per_class": 10}),
         ]  # fmt: skip
         for name, options in bad:
             with self.subTest(name=name, options=options), self.assertRaises(SamplesError):

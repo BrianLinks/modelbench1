@@ -145,13 +145,46 @@ def make_xor(seed: int, rows_per_class: int = 100, noise: float = 0.3) -> Table:
     return Table(("x1", "x2", "label"), _shuffled(rows, seed, "xor"))
 
 
+LINEAR_INTERCEPT = 4.0
+
+
+def linear_weights(features: int) -> list[float]:
+    """The true weights behind `make_linear`: 1, -2, 3, -4, 5, then 1, -2, ... in feature order."""
+    return [float((j % 5) + 1) * (-1.0) ** j for j in range(features)]
+
+
+def make_linear(seed: int, rows: int = 200, features: int = 2, noise: float = 1.0) -> Table:
+    """A regression table: `y = 4 + sum(w_j * x_j) + gauss(0, noise)` with `x_j` uniform on [-5, 5].
+
+    The weights are `linear_weights(features)`, so a fitted model can be checked against them.
+    The target column is `y`.
+    """
+    seed = check_seed(seed)
+    n_rows = _check_count("rows", rows, 2, MAX_ROWS)
+    n_features = _check_count("features", features, 1, MAX_FEATURES)
+    if n_rows * n_features > MAX_CELLS:
+        raise SamplesError(f"at most {MAX_CELLS} values (rows x features) in total")
+    sd = _check_float("noise", noise, 0.0, 1e3)
+    weights = linear_weights(n_features)
+    rng = rng_for(seed, "linear", "values")
+    out: list[tuple[str, ...]] = []
+    for _ in range(n_rows):
+        x = [round(rng.uniform(-5.0, 5.0), DECIMALS) for _ in range(n_features)]
+        target = LINEAR_INTERCEPT + math.fsum(w * v for w, v in zip(weights, x, strict=True))
+        out.append((*(_number(v) for v in x), _number(target + rng.gauss(0.0, sd))))
+    columns = tuple(f"x{j + 1}" for j in range(n_features)) + ("y",)
+    return Table(columns, tuple(out))
+
+
 GENERATORS: dict[str, Callable[..., Table]] = {
     "blobs": make_blobs,
+    "linear": make_linear,
     "moons": make_moons,
     "xor": make_xor,
 }
 OPTIONS: dict[str, tuple[str, ...]] = {
     "blobs": ("rows_per_class", "classes", "features", "separation", "spread"),
+    "linear": ("rows", "features", "noise"),
     "moons": ("rows_per_class", "noise"),
     "xor": ("rows_per_class", "noise"),
 }

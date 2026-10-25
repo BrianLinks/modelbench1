@@ -557,6 +557,17 @@ class ErrorHandlingTests(CliTestCase):
                 self.assertEqual(code, 2)
                 self.assertNotEqual(err, "")
 
+    def test_sample_linear_options(self):
+        code, out, _ = self.cli("sample", "linear", "--rows", "3", "--features", "1",
+                                "--noise", "0", db=False)  # fmt: skip
+        self.assertEqual(code, 0)
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "x1,y")
+        self.assertEqual(len(lines), 4)
+        for line in lines[1:]:
+            x, y = (float(v) for v in line.split(","))
+            self.assertAlmostEqual(y, 4.0 + x, delta=2e-6)
+
     def test_models_and_dataset_commands(self):
         code, out, _ = self.cli("models", db=False)
         self.assertEqual(code, 0)

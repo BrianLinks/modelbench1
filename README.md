@@ -156,11 +156,12 @@ note cannot send terminal escape sequences. Ctrl-C during `run` leaves the run `
 
 ## Sample data and demo
 
-Three seeded generators produce string-labelled tables with no download and no network:
+Four seeded generators produce tables with no download and no network:
 
 | Name | What it is |
 |---|---|
 | `blobs` | Gaussian clusters, one per class (`c0`, `c1`, ...), any number of features |
+| `linear` | a regression table: `y = 4 + 1·x1 - 2·x2 + 3·x3 ...` plus Gaussian `noise` (`--rows`, `--features`, `--noise`); the target column is `y` |
 | `moons` | two interleaving half circles (`a`, `b`); a straight line cannot separate them |
 | `xor` | four clusters labelled by the sign of x1 times x2 (`neg`, `pos`); no straight line separates them either |
 
@@ -168,6 +169,9 @@ Three seeded generators produce string-labelled tables with no download and no n
 modelbench sample moons --seed 42 --rows-per-class 100 -o moons.csv
 modelbench --db demo.db demo --rows-per-class 30
 ```
+
+The demo runs the three classification datasets. To try regression, generate `linear` and run a
+config with `"model": "linear_regression"` and `"metrics": ["mae", "r2"]` on it with `--label y`.
 
 ```
 DATASET  MODEL                PARAMS            ACCURACY  F1      RUN

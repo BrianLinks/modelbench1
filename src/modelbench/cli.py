@@ -289,7 +289,7 @@ def cmd_recover(args: argparse.Namespace) -> int:
     return 0
 
 
-SAMPLE_OPTIONS = ("rows_per_class", "classes", "features", "separation", "spread", "noise")
+SAMPLE_OPTIONS = ("rows_per_class", "rows", "classes", "features", "separation", "spread", "noise")
 
 
 def cmd_sample(args: argparse.Namespace) -> int:
@@ -417,11 +417,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("-o", "--output", help="write to a file instead of stdout")
     p.add_argument("--rows-per-class", dest="rows_per_class", type=int)
+    p.add_argument("--rows", type=int, help="linear only")
     p.add_argument("--classes", type=int, help="blobs only")
-    p.add_argument("--features", type=int, help="blobs only")
+    p.add_argument("--features", type=int, help="blobs and linear only")
     p.add_argument("--separation", type=float, help="blobs only")
     p.add_argument("--spread", type=float, help="blobs only")
-    p.add_argument("--noise", type=float, help="moons and xor only")
+    p.add_argument("--noise", type=float, help="moons, xor and linear only")
 
     p = add("demo", cmd_demo, "run every model on three sample datasets", True)
     p.add_argument("--seed", type=int, default=42)
