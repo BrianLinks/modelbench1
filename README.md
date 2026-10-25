@@ -26,8 +26,8 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.dashboard`: a read-only local web dashboard (`modelbench serve`)
 - `modelbench.samples`: seeded synthetic datasets and a demo that fills a database with runs
 
-Linear regression (and regression metrics in the runner) and import are planned and not built
-yet.
+Regression models (`mean`, `linear_regression`) run through the same runner, with `mae`, `mse`,
+`rmse` and `r2`. Still to come: architecture notes and a first release tag.
 
 ## Running an experiment
 
