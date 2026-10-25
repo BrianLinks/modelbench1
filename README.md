@@ -27,7 +27,10 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.samples`: seeded synthetic datasets and a demo that fills a database with runs
 
 Regression models (`mean`, `linear_regression`) run through the same runner, with `mae`, `mse`,
-`rmse` and `r2`. Still to come: architecture notes and a first release tag.
+`rmse` and `r2`.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit and
+[docs/adr](docs/adr) for the decisions behind them.
 
 ## Running an experiment
 
