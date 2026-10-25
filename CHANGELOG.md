@@ -34,6 +34,9 @@ All notable changes to this project are documented here.
 - Dashboard: `modelbench serve` runs a read-only local web dashboard (run list, run detail with
   charts, comparison, JSON API) with a loopback-only default, Host-header check, and a strict
   Content-Security-Policy. `Store(read_only=True)` opens a database that SQLite will not write.
+- Regression: `Regressor` interface, `mean` baseline and `linear_regression` (ridge, closed form),
+  a `REGRESSORS` registry with `model_kind`, and regression runs in `run_experiment` (numeric
+  targets, regression metrics only, no stratify). `modelbench models` now shows each model's kind.
 - Command line: `run`, `list`, `show`, `compare`, `repro`, `note`, `export`, `recover`,
   `dataset`, and `models`, with `--json` output and `python -m modelbench`.
 

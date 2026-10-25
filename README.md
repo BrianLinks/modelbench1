@@ -297,6 +297,15 @@ All classifiers share `fit(X, y)`, `predict(X)`, and `predict_proba(X)`. Probabi
 | `decision_tree` | CART with Gini impurity: `max_depth` (default 5, `None` for unlimited), `min_samples_split`, `min_samples_leaf`; leaves predict class fractions |
 | `logistic_regression` | Multinomial (softmax) with an L2 penalty: `l2` (default 0.01), `max_iter`, `tol`; features are standardised internally |
 
+Regression models share `fit(X, y)` and `predict(X)` with numeric targets and are used with the
+metrics `mae`, `mse`, `rmse` and `r2`. A model's kind decides which metrics are allowed, and
+`stratify` is rejected for regression. `modelbench models` lists every model with its kind.
+
+| Name | Behaviour |
+|---|---|
+| `mean` | Predicts the training mean; the baseline for `r2` |
+| `linear_regression` | Closed-form least squares (Cholesky) on standardised features: `l2` (default 0). Constant columns get zero weight; collinear features with `l2=0` are an error that suggests `l2>0`. `coef_` and `intercept_` are in original units |
+
 ```python
 from modelbench.models import create_model
 

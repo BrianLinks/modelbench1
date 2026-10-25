@@ -478,5 +478,121 @@ class StratifyTests(RunnerTestCase):
         self.assertEqual(self.run_it(config, table).n_test, 8)
 
 
+def line_table(n=40, slope=2.0, intercept=1.0):
+    rows = [(str(i), repr(slope * i + intercept)) for i in range(n)]
+    return Table(("x", "y"), tuple(rows))
+
+
+class RegressionRunTests(RunnerTestCase):
+    def run_reg(self, config, table=None, **kwargs):
+        kwargs.setdefault("environment", ENV)
+        return run_experiment(self.store, config, table or line_table(), "y", **kwargs)
+
+    def reg_config(self, **overrides):
+        fields = {
+            "model": "linear_regression",
+            "params": {},
+            "metrics": ("mae", "mse", "rmse", "r2"),
+        }
+        fields.update(overrides)
+        return make_config(**fields)
+
+    def test_exact_line_is_recovered_and_recorded(self):
+        result = self.run_reg(self.reg_config())
+        self.assertAlmostEqual(result.metrics["mae"], 0.0, places=8)
+        self.assertAlmostEqual(result.metrics["rmse"], 0.0, places=8)
+        self.assertAlmostEqual(result.metrics["r2"], 1.0, places=8)
+        self.assertEqual((result.n_train, result.n_test), (32, 8))
+        record = self.store.get_run(result.run_id)
+        self.assertEqual(record.status, "completed")
+        self.assertEqual(set(self.store.final_metrics(result.run_id)), {"mae", "mse", "rmse", "r2"})
+
+    def test_mean_baseline_matches_a_hand_computation(self):
+        config = self.reg_config(model="mean")
+        table = line_table()
+        result = self.run_reg(config, table)
+        train_idx, test_idx = split_indices(len(table), config.test_fraction, config.seed, None)
+        targets = [float(row[1]) for row in table.rows]
+        mean = sum(targets[i] for i in train_idx) / len(train_idx)
+        errors = [targets[i] - mean for i in test_idx]
+        self.assertAlmostEqual(result.metrics["mae"], sum(abs(e) for e in errors) / len(errors))
+        self.assertAlmostEqual(result.metrics["mse"], sum(e * e for e in errors) / len(errors))
+        self.assertAlmostEqual(result.metrics["rmse"], math.sqrt(result.metrics["mse"]))
+        self.assertLess(result.metrics["r2"], 0.2)  # the mean explains almost nothing of a line
+
+    def test_predictions_are_hashed_as_floats_and_repeat_exactly(self):
+        config = self.reg_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            first = self.run_reg(config, artifact_dir=tmp)
+            second = self.run_reg(config)
+            saved = json.loads((Path(tmp) / first.run_id / "predictions.json").read_text())
+        self.assertEqual(first.predictions_sha256, second.predictions_sha256)
+        self.assertEqual(first.metrics, second.metrics)
+        self.assertTrue(all(isinstance(v, float) for v in saved["y_true"]))
+        self.assertTrue(all(isinstance(v, float) for v in saved["y_pred"]))
+        self.assertEqual(len(saved["y_pred"]), 8)
+
+    def test_reuse_existing_works_for_regression(self):
+        config = self.reg_config()
+        first = self.run_reg(config)
+        again = self.run_reg(config, reuse_existing=True)
+        self.assertTrue(again.reused)
+        self.assertEqual(again.run_id, first.run_id)
+        self.assertEqual(len(self.store.list_runs()), 1)
+
+    def test_numeric_target_formats(self):
+        table = Table(
+            ("x", "y"),
+            tuple((str(i), cell) for i, cell in enumerate(
+                [" 1 ", "2.5", "-3", "+4e0", ".5", "6.", "7", "8", "9", "10"]
+            )),
+        )  # fmt: skip
+        result = self.run_reg(self.reg_config(model="mean", metrics=("mae",)), table)
+        self.assertEqual(result.n_train + result.n_test, 10)
+
+    def test_bad_targets_are_rejected_before_any_run(self):
+        for bad in ("abc", "", "nan", "inf", "1e999", "１２", "1,5"):
+            rows = list(line_table(10).rows)
+            rows[4] = ("4", bad)
+            with self.assertRaises(RunnerError, msg=repr(bad)):
+                self.run_reg(self.reg_config(), Table(("x", "y"), tuple(rows)))
+        self.assertNoRunsCreated()
+
+    def test_metric_kind_must_match_the_model_kind(self):
+        for metrics in (("accuracy",), ("mae", "f1"), ("log_loss",)):
+            with self.assertRaises(RunnerError, msg=str(metrics)):
+                self.run_reg(self.reg_config(metrics=metrics))
+        for metrics in (("mae",), ("accuracy", "r2")):
+            with self.assertRaises(RunnerError, msg=str(metrics)):
+                self.run_it(make_config(metrics=metrics))
+        self.assertNoRunsCreated()
+
+    def test_stratify_is_rejected_for_regression(self):
+        with self.assertRaisesRegex(RunnerError, "stratify"):
+            self.run_reg(self.reg_config(stratify=True))
+        self.assertNoRunsCreated()
+
+    def test_model_errors_fail_the_run_and_are_recorded(self):
+        table = Table(("a", "b", "y"), tuple((str(i), str(2 * i), str(i)) for i in range(20)))
+        with self.assertRaises(ModelError):  # a and b are perfectly collinear, l2 is 0
+            run_experiment(self.store, self.reg_config(), table, "y", environment=ENV)
+        (run,) = self.store.list_runs()
+        self.assertEqual(run.status, "failed")
+        self.assertIn("l2", run.error)
+
+    def test_unknown_parameter_and_unknown_model(self):
+        with self.assertRaises(ModelError):
+            self.run_reg(self.reg_config(params={"k": 3}))
+        with self.assertRaises(ModelError):
+            self.run_reg(self.reg_config(model="no_such"))
+        self.assertNoRunsCreated()
+
+    def test_ridge_parameter_changes_the_result(self):
+        plain = self.run_reg(self.reg_config(experiment_id="p"))
+        ridge = self.run_reg(self.reg_config(experiment_id="r", params={"l2": 5.0}))
+        self.assertNotEqual(plain.predictions_sha256, ridge.predictions_sha256)
+        self.assertGreater(ridge.metrics["mae"], plain.metrics["mae"])
+
+
 if __name__ == "__main__":
     unittest.main()

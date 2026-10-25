@@ -561,14 +561,16 @@ class ErrorHandlingTests(CliTestCase):
         code, out, _ = self.cli("models", db=False)
         self.assertEqual(code, 0)
         self.assertEqual(
-            out.split(),
+            out.splitlines(),
             [
-                "decision_tree",
-                "gaussian_nb",
-                "knn",
-                "logistic_regression",
-                "majority",
-                "stratified",
+                "decision_tree  classification",
+                "gaussian_nb  classification",
+                "knn  classification",
+                "linear_regression  regression",
+                "logistic_regression  classification",
+                "majority  classification",
+                "mean  regression",
+                "stratified  classification",
             ],
         )
         code, out, _ = self.cli("dataset", self.data, "--id", "blobs", "--label", "label", db=False)

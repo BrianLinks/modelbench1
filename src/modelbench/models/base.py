@@ -135,6 +135,75 @@ class Classifier(ABC):
         return out
 
 
+def check_targets(y: Sequence[float], n_rows: int) -> list[float]:
+    """Validate a sequence of finite real targets, one per row, and return it as floats."""
+    if isinstance(y, (str, bytes)) or not isinstance(y, Sequence):
+        raise ModelError("y must be a sequence of numbers")
+    if len(y) != n_rows:
+        raise ModelError(f"X has {n_rows} rows but y has {len(y)} targets")
+    out: list[float] = []
+    for position, value in enumerate(y):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ModelError(f"y[{position}] must be a number, got {value!r}")
+        number = float(value)
+        if not math.isfinite(number):
+            raise ModelError(f"y[{position}] must be finite, got {value!r}")
+        out.append(number)
+    return out
+
+
+class Regressor(ABC):
+    """A regressor with a fit / predict interface. Predictions are plain floats."""
+
+    name: ClassVar[str]
+
+    def __init__(self) -> None:
+        self._n_features: int | None = None
+
+    @abstractmethod
+    def get_params(self) -> dict[str, Any]:
+        """The constructor arguments needed to rebuild an equivalent unfitted model."""
+
+    @abstractmethod
+    def _fit(self, X: Matrix, y: list[float]) -> None: ...
+
+    @abstractmethod
+    def _predict(self, X: Matrix) -> list[float]: ...
+
+    @property
+    def is_fitted(self) -> bool:
+        return self._n_features is not None
+
+    def fit(self, X: Sequence[Sequence[float]], y: Sequence[float]) -> None:
+        rows = check_features(X)
+        targets = check_targets(y, len(rows))
+        self._n_features = None  # a failed refit must not leave a half-trained model usable
+        try:
+            self._fit(rows, targets)
+        except ArithmeticError as exc:
+            raise ModelError(self._overflow_message(exc)) from exc
+        self._n_features = len(rows[0])
+
+    def _overflow_message(self, exc: ArithmeticError) -> str:
+        return f"{self.name} hit a numeric overflow ({exc}); rescale the data"
+
+    def predict(self, X: Sequence[Sequence[float]]) -> list[float]:
+        if self._n_features is None:
+            raise ModelError(f"{self.name} has not been fitted yet")
+        rows = check_features(X)
+        if len(rows[0]) != self._n_features:
+            raise ModelError(
+                f"model was fitted with {self._n_features} features, got {len(rows[0])}"
+            )
+        try:
+            out = self._predict(rows)
+        except ArithmeticError as exc:
+            raise ModelError(self._overflow_message(exc)) from exc
+        if not all(math.isfinite(v) for v in out):
+            raise ModelError(f"{self.name} produced a non-finite prediction; rescale the data")
+        return out
+
+
 def class_priors(labels: Sequence[Label], classes: Sequence[Label]) -> list[float]:
     """Fraction of `labels` equal to each class, in the order of `classes`."""
     counts = {c: 0 for c in classes}

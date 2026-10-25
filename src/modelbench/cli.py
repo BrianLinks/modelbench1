@@ -21,7 +21,7 @@ from .dashboard import DEFAULT_PORT, serve
 from .datasets import make_version, read_csv
 from .errors import CliError, ModelBenchError
 from .export import export_json, export_metrics_csv, export_runs, write_text_atomic
-from .models import available_models
+from .models import all_models, model_kind
 from .reproducibility import check_reproducibility, recover_stale_runs
 from .run_comparison import RunComparison, compare_runs
 from .runner import run_experiment
@@ -74,7 +74,7 @@ def _table(rows: Sequence[Sequence[str]]) -> str:
 
 
 def cmd_models(args: argparse.Namespace) -> int:
-    print("\n".join(available_models()))
+    print("\n".join(f"{name}  {model_kind(name)}" for name in all_models()))
     return 0
 
 

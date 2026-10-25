@@ -22,8 +22,8 @@ from .config import ExperimentConfig
 from .datasets import DatasetVersion, Table, make_version, split_indices
 from .environment import environment_fingerprint
 from .errors import RunnerError
-from .models import REGISTRY, create_model
-from .models.base import Classifier, Label
+from .models import REGISTRY, REGRESSORS, create_model, create_regressor, model_kind
+from .models.base import Classifier, Label, Regressor
 from .seeding import derive_seed
 from .store import Store
 
@@ -64,15 +64,21 @@ def run_experiment(
     `reuse_existing=True`, a completed run of the same experiment with identical settings and
     dataset version is returned instead of running again.
     """
-    _check_metrics(config.metrics)
-    X, y = _features_and_labels(table, label_column, feature_columns)
+    kind = model_kind(config.model)
+    _check_metrics(config.metrics, kind)
+    if kind == "regression" and config.stratify:
+        raise RunnerError("stratify applies to classification; regression has no classes")
+    X, y = _features_and_labels(
+        table, label_column, feature_columns, numeric_target=kind == "regression"
+    )
     dataset = make_version(config.dataset_id, table, label_column)
     train_idx, test_idx = split_indices(
         len(table), config.test_fraction, config.seed, y if config.stratify else None
     )
     train_labels = [y[i] for i in train_idx]
     test_labels = [y[i] for i in test_idx]
-    _check_split_for_metrics(config.metrics, train_labels, test_labels)
+    if kind == "classification":
+        _check_split_for_metrics(config.metrics, train_labels, test_labels)
     model, model_seed = _build_model(config)
 
     if reuse_existing:
@@ -95,7 +101,7 @@ def _execute(
     store: Store,
     run_id: str,
     config: ExperimentConfig,
-    model: Classifier,
+    model: Classifier | Regressor,
     model_seed: int | None,
     X: list[list[float]],
     y: list[Label],
@@ -107,7 +113,10 @@ def _execute(
     test_X = [X[i] for i in test_idx]
     y_true = [y[i] for i in test_idx]
     y_pred = model.predict(test_X)
-    scores = _score(config.metrics, model, test_X, y_true, y_pred)
+    if isinstance(model, Regressor):
+        scores = _score_regression(config.metrics, y_true, y_pred)  # type: ignore[arg-type]
+    else:
+        scores = _score(config.metrics, model, test_X, y_true, y_pred)
 
     payload = json.dumps(
         {"test_indices": test_idx, "y_true": y_true, "y_pred": y_pred},
@@ -137,19 +146,25 @@ def _execute(
 # -- checks made before any run is created ---------------------------------------------------
 
 
-def _check_metrics(names: Sequence[str]) -> None:
-    unsupported = [n for n in names if n in REGRESSION_METRICS]
-    if unsupported:
-        raise RunnerError(
-            f"metric(s) {unsupported} apply to regression, but only classification models exist"
-        )
-    unknown = [n for n in names if n not in CLASSIFICATION_METRICS]
+def _check_metrics(names: Sequence[str], kind: str = "classification") -> None:
+    allowed, other = (
+        (CLASSIFICATION_METRICS, REGRESSION_METRICS)
+        if kind == "classification"
+        else (REGRESSION_METRICS, CLASSIFICATION_METRICS)
+    )
+    wrong_kind = [n for n in names if n in other]
+    if wrong_kind:
+        raise RunnerError(f"metric(s) {wrong_kind} do not apply to a {kind} model")
+    unknown = [n for n in names if n not in allowed]
     if unknown:
         raise RunnerError(f"unsupported metric(s) {unknown}")
 
 
 def _features_and_labels(
-    table: Table, label_column: str, feature_columns: Sequence[str] | None
+    table: Table,
+    label_column: str,
+    feature_columns: Sequence[str] | None,
+    numeric_target: bool = False,
 ) -> tuple[list[list[float]], list[Label]]:
     if label_column not in table.columns:
         raise RunnerError(f"label column {label_column!r} is not in the dataset")
@@ -184,7 +199,13 @@ def _features_and_labels(
         label = row[label_position]
         if label.strip() == "":
             raise RunnerError(f"row {row_number}: label is empty")
-        y.append(label)
+        if numeric_target:
+            text = label.strip()
+            if _NUMBER_RE.fullmatch(text) is None or not math.isfinite(float(text)):
+                raise RunnerError(f"row {row_number}: target {label!r} is not a finite number")
+            y.append(float(text))
+        else:
+            y.append(label)
     return X, y
 
 
@@ -207,14 +228,16 @@ def _check_split_for_metrics(
             raise RunnerError(f"log_loss needs every test label in training; unseen: {unseen}")
 
 
-def _build_model(config: ExperimentConfig) -> tuple[Classifier, int | None]:
+def _build_model(config: ExperimentConfig) -> tuple[Classifier | Regressor, int | None]:
     params = dict(config.params)
-    cls = REGISTRY.get(config.model)
+    cls = REGISTRY.get(config.model) or REGRESSORS.get(config.model)
     model_seed: int | None = None
     if cls is not None and "seed" in inspect.signature(cls.__init__).parameters:
         if "seed" not in params:
             params["seed"] = derive_seed(config.seed, "model")
         model_seed = params["seed"]
+    if config.model in REGRESSORS:
+        return create_regressor(config.model, **params), model_seed
     return create_model(config.model, **params), model_seed
 
 
@@ -243,6 +266,13 @@ def _score(
             else:
                 scores[name] = m.log_loss(y_true, proba, labels=model.classes_)
     return scores
+
+
+def _score_regression(
+    names: Sequence[str], y_true: list[float], y_pred: list[float]
+) -> dict[str, float]:
+    functions = {"mae": m.mae, "mse": m.mse, "rmse": m.rmse, "r2": m.r2}
+    return {name: functions[name](y_true, y_pred) for name in names}
 
 
 def _find_reusable(
