@@ -14,11 +14,10 @@ def fitted(X, y, **params):
 
 def gini_scores(X, y, rows):
     """Brute force: (weighted impurity * n, feature, threshold) for every midpoint split."""
-    n = len(rows)
     out = []
     for feature in range(len(X[0])):
         values = sorted({X[i][feature] for i in rows})
-        for low, high in zip(values, values[1:]):
+        for low, high in zip(values, values[1:], strict=False):
             threshold = low + (high - low) / 2
             left = [y[i] for i in rows if X[i][feature] <= threshold]
             right = [y[i] for i in rows if X[i][feature] > threshold]
@@ -83,7 +82,7 @@ class KnownAnswerTests(unittest.TestCase):
     def test_constant_features_cannot_split(self):
         model = fitted([[2.0], [2.0], [2.0]], ["a", "b", "b"])
         self.assertEqual(model.n_leaves_, 1)
-        for (pa, pb), expected in zip(model.predict_proba([[2.0]]), [(1 / 3, 2 / 3)]):
+        for (pa, pb), expected in zip(model.predict_proba([[2.0]]), [(1 / 3, 2 / 3)], strict=True):
             self.assertAlmostEqual(pa, expected[0])
             self.assertAlmostEqual(pb, expected[1])
 

@@ -114,9 +114,7 @@ def table_digest(table: Table) -> str:
     return hashlib.sha256(text.encode("ascii")).hexdigest()
 
 
-def make_version(
-    dataset_id: str, table: Table, label_column: str | None = None
-) -> DatasetVersion:
+def make_version(dataset_id: str, table: Table, label_column: str | None = None) -> DatasetVersion:
     validate_id("dataset", dataset_id)
     if len(table) == 0:
         raise DatasetError("dataset has no rows")

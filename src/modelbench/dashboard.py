@@ -221,7 +221,7 @@ def render_index(store: Store, query: dict[str, list[str]]) -> str:
         '<form method="get" action="/"><label>experiment '
         f'<input name="experiment" value="{esc(experiment or "")}"></label> '
         f'<label>status <select name="status"><option value="">any</option>{options}</select>'
-        '</label> <button>Filter</button></form>'
+        "</label> <button>Filter</button></form>"
     )
     if not runs:
         return page("Runs", f"<h1>Runs</h1>{form}<p>No runs match.</p>")
@@ -243,7 +243,7 @@ def render_index(store: Store, query: dict[str, list[str]]) -> str:
         '<form method="get" action="/compare"><table><thead><tr><th></th><th>Run</th>'
         "<th>Experiment</th><th>Model</th><th>Status</th><th>Started</th><th>Metrics</th>"
         f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
-        '<p><button>Compare selected runs</button> '
+        "<p><button>Compare selected runs</button> "
         '<span class="muted">the oldest selected run is the baseline</span></p>'
         "</form>"
     )
@@ -279,7 +279,7 @@ def render_run(store: Store, run_id: str) -> str:
     if series:
         body.append("<h2>Metrics</h2>")
         rows = "".join(
-            f"<tr><td>{esc(name)}</td><td class=\"num\">{fmt(pts[-1][1])}</td>"
+            f'<tr><td>{esc(name)}</td><td class="num">{fmt(pts[-1][1])}</td>'
             f"<td>{esc(pts[-1][0])}</td><td>{len(pts)}</td></tr>"
             for name, pts in sorted(series.items())
         )
@@ -339,7 +339,7 @@ def _render_diff(result: RunComparison) -> str:
                 css = {True: "good", False: "bad", None: "muted"}[m.improved]
                 word = {True: "better", False: "worse", None: ""}[m.improved]
                 rows += (
-                    f"<tr><td>{esc(m.name)}</td><td class=\"num\">{fmt(m.old)}</td>"
+                    f'<tr><td>{esc(m.name)}</td><td class="num">{fmt(m.old)}</td>'
                     f'<td class="num">{fmt(m.new)}</td>'
                     f'<td class="num {css}">{m.delta:+.4f} {word}</td></tr>'
                 )
@@ -403,9 +403,7 @@ def render_compare(store: Store, query: dict[str, list[str]]) -> str:
         body.append(f"<p>rank by <strong>{esc(ranking.metric)}</strong>: {ranked}</p>")
     for name in names:
         items = [
-            (rid, result.values[rid][name])
-            for rid in result.run_ids
-            if name in result.values[rid]
+            (rid, result.values[rid][name]) for rid in result.run_ids if name in result.values[rid]
         ]
         body.append(f"<h2>{esc(name)}</h2>{bar_chart(name, items)}")
     body.append(_render_diff(result))
@@ -529,7 +527,7 @@ class _V6Server(_Server):
 
 
 class _Handler(BaseHTTPRequestHandler):
-    server: _Server  # type: ignore[assignment]
+    server: _Server
     server_version = "ModelBench"
     sys_version = ""
 
@@ -565,7 +563,7 @@ class _Handler(BaseHTTPRequestHandler):
         response = _error_page(405, "this dashboard is read-only", self.path.startswith("/api/"))
         self._reply(response, True, {"Allow": "GET, HEAD"})
 
-    do_POST = do_PUT = do_DELETE = do_PATCH = _refuse  # type: ignore[assignment]
+    do_POST = do_PUT = do_DELETE = do_PATCH = _refuse
 
 
 def make_server(
@@ -607,7 +605,8 @@ def serve(
     """Run the dashboard until interrupted (Ctrl-C), then close it cleanly."""
     server = make_server(db_path, host, port, allow_network=allow_network)
     name, bound_port = server.server_address[:2]
-    shown = f"[{name}]" if ":" in str(name) else str(name)
+    host_text = name if isinstance(name, str) else name.decode()
+    shown = f"[{host_text}]" if ":" in host_text else host_text
     message = f"serving {db_path} at http://{shown}:{bound_port}/ (Ctrl-C to stop)"
     print(message, file=out or sys.stdout, flush=True)
     try:

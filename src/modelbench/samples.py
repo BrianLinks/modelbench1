@@ -95,8 +95,7 @@ def make_blobs(
     for k in range(n_classes):
         for _ in range(per_class):
             cells = [
-                _number(gap * ((k + j) % n_classes) + rng.gauss(0.0, sd))
-                for j in range(n_features)
+                _number(gap * ((k + j) % n_classes) + rng.gauss(0.0, sd)) for j in range(n_features)
             ]
             rows.append((*cells, f"c{k}"))
     columns = tuple(f"x{j + 1}" for j in range(n_features)) + ("label",)
@@ -255,9 +254,7 @@ def run_demo(store: Store, seed: int = 42, rows_per_class: int = 100) -> list[De
     something to show. `rows_per_class` is limited to 2000 to keep the demo quick.
     """
     seed = check_seed(seed)
-    rows_per_class = _check_count(
-        "rows_per_class", rows_per_class, 20, DEMO_MAX_ROWS_PER_CLASS
-    )
+    rows_per_class = _check_count("rows_per_class", rows_per_class, 20, DEMO_MAX_ROWS_PER_CLASS)
     tables = {
         "moons": (make_moons(seed, rows_per_class), True),
         "xor": (make_xor(seed, rows_per_class), True),

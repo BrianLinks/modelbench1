@@ -39,9 +39,7 @@ _RUN_KEYS = frozenset(
         "notes",
     }
 )  # fmt: skip
-_DATASET_KEYS = frozenset(
-    {"dataset_id", "version", "sha256", "n_rows", "columns", "label_column"}
-)
+_DATASET_KEYS = frozenset({"dataset_id", "version", "sha256", "n_rows", "columns", "label_column"})
 _METRIC_KEYS = frozenset({"name", "step", "value"})
 _ARTIFACT_KEYS = frozenset({"name", "kind", "sha256", "size_bytes", "path"})
 _NOTE_KEYS = frozenset({"created_at", "text"})

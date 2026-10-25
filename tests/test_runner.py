@@ -144,9 +144,10 @@ class IndependentKnownAnswerTests(RunnerTestCase):
     def test_log_loss_is_the_cross_entropy_of_the_training_priors(self):
         p_a = self.train_counts["a"] / self.n_train
         p_b = self.train_counts["b"] / self.n_train
-        expected = -(
-            self.test_counts["a"] * math.log(p_a) + self.test_counts["b"] * math.log(p_b)
-        ) / self.n_test
+        expected = (
+            -(self.test_counts["a"] * math.log(p_a) + self.test_counts["b"] * math.log(p_b))
+            / self.n_test
+        )
         self.assertAlmostEqual(self.result.metrics["log_loss"], expected)
 
     def test_constant_scores_give_an_auc_of_one_half(self):
@@ -339,9 +340,11 @@ class FailureRecordingTests(RunnerTestCase):
 
     def test_a_failure_while_scoring_is_recorded(self):
         boom = RuntimeError("scoring blew up")
-        with mock.patch("modelbench.runner.m.accuracy", side_effect=boom):
-            with self.assertRaises(RuntimeError):
-                self.run_it()
+        with (
+            mock.patch("modelbench.runner.m.accuracy", side_effect=boom),
+            self.assertRaises(RuntimeError),
+        ):
+            self.run_it()
         (run,) = self.store.list_runs()
         self.assertEqual(run.status, "failed")
         self.assertEqual(run.error, "RuntimeError: scoring blew up")

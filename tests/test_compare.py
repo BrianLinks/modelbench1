@@ -207,7 +207,7 @@ class BootstrapTests(unittest.TestCase):
     def test_interval_matches_an_independent_hand_computation(self):
         a = [1, 1, 0, 1, 0, 1, 1, 0, 1, 1]
         b = [0, 1, 0, 0, 0, 1, 0, 0, 1, 0]
-        diffs = [x - y for x, y in zip(a, b)]
+        diffs = [x - y for x, y in zip(a, b, strict=True)]
         draws = random.Random(derive_seed(9, "bootstrap"))
         means = sorted(
             sum(diffs[int(draws.random() * 10)] for _ in range(10)) / 10 for _ in range(1000)
@@ -274,7 +274,7 @@ class BootstrapTests(unittest.TestCase):
             b = [rng.choice((0, 1)) for _ in range(n)]
             result = paired_bootstrap(a, b, n_resamples=200, seed=rng.randint(0, 999))
             self.assertLessEqual(result.ci_low, result.ci_high)
-            self.assertTrue(-1.0 <= result.ci_low and result.ci_high <= 1.0)
+            self.assertTrue(result.ci_low >= -1.0 and result.ci_high <= 1.0)
             self.assertTrue(0.0 <= result.prob_a_better <= 1.0)
 
     def test_validation(self):

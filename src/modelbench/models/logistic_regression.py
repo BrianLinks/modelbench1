@@ -25,10 +25,14 @@ MAX_ITER_LIMIT = 100_000
 
 
 def _positive(name: str, value: object, minimum: float) -> float:
-    ok = isinstance(value, (int, float)) and not isinstance(value, bool)
-    if not ok or not math.isfinite(value) or value < minimum:  # type: ignore[arg-type]
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < minimum
+    ):
         raise ModelError(f"{name} must be a finite number of at least {minimum:g}, got {value!r}")
-    return float(value)  # type: ignore[arg-type]
+    return float(value)
 
 
 def _softmax(scores: list[float]) -> list[float]:
@@ -101,7 +105,7 @@ class LogisticRegression(Classifier):
         lookahead_b = b[:]
         converged = False
         iterations = 0
-        for iterations in range(1, self.max_iter + 1):
+        for iterations in range(1, self.max_iter + 1):  # noqa: B007 (read after the loop)
             grad_w = [[self.l2 * w for w in row] for row in lookahead_w]
             grad_b = [0.0] * k
             for z, t in zip(Z, target, strict=True):

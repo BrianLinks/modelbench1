@@ -187,7 +187,7 @@ class WriteTests(unittest.TestCase):
     def test_non_ascii_text_is_utf8_and_newlines_are_untouched(self):
         target = self.dir / "out.txt"
         write_text_atomic(target, "héllo\r\nworld")
-        self.assertEqual(target.read_bytes(), "héllo\r\nworld".encode("utf-8"))
+        self.assertEqual(target.read_bytes(), "héllo\r\nworld".encode())
 
     def test_text_is_written_without_newline_translation(self):
         real = os.fdopen
@@ -211,9 +211,11 @@ class WriteTests(unittest.TestCase):
     def test_failed_write_keeps_the_original_and_leaves_no_temp_file(self):
         target = self.dir / "out.json"
         target.write_text("original")
-        with mock.patch("modelbench.export.os.replace", side_effect=OSError("disk full")):
-            with self.assertRaisesRegex(ExportError, "disk full"):
-                write_text_atomic(target, "new")
+        with (
+            mock.patch("modelbench.export.os.replace", side_effect=OSError("disk full")),
+            self.assertRaisesRegex(ExportError, "disk full"),
+        ):
+            write_text_atomic(target, "new")
         self.assertEqual(target.read_text(), "original")
         self.assertEqual([p.name for p in self.dir.iterdir()], ["out.json"])
 

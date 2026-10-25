@@ -195,10 +195,7 @@ def rank_runs(
     order = sorted(values, key=lambda run_id: (sign * values[run_id], run_id))
     ranked: list[RankedRun] = []
     for position, run_id in enumerate(order, start=1):
-        if ranked and values[run_id] == ranked[-1].value:
-            rank = ranked[-1].rank
-        else:
-            rank = position
+        rank = ranked[-1].rank if ranked and values[run_id] == ranked[-1].value else position
         ranked.append(RankedRun(rank, run_id, values[run_id]))
     return Ranking(metric, tuple(ranked), tuple(sorted(missing)))
 

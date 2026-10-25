@@ -31,7 +31,7 @@ REGRESSORS: dict[str, type[Regressor]] = {
 
 
 def model_kind(name: str) -> str:
-    """"classification" or "regression" for a registered model name; ModelError if unknown."""
+    """ "classification" or "regression" for a registered model name; ModelError if unknown."""
     if isinstance(name, str):
         if name in REGISTRY:
             return "classification"
@@ -61,7 +61,7 @@ def create_regressor(name: str, **params: Any) -> Regressor:
             f"unknown regressor {name!r}; available: {list(available_regressors())}"
         ) from None
     try:
-        return cls(**params)  # type: ignore[call-arg]
+        return cls(**params)
     except TypeError as exc:
         raise ModelError(f"invalid parameters for model {name!r}: {exc}") from exc
 
@@ -73,7 +73,7 @@ def create_model(name: str, **params: Any) -> Classifier:
     except (KeyError, TypeError):
         raise ModelError(f"unknown model {name!r}; available: {list(available_models())}") from None
     try:
-        return cls(**params)  # type: ignore[call-arg]
+        return cls(**params)
     except TypeError as exc:
         raise ModelError(f"invalid parameters for model {name!r}: {exc}") from exc
 

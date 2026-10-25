@@ -114,7 +114,7 @@ class RoundTripTests(StoreCase):
         report = import_runs_json(dest, self.text)
         self.assertEqual([s for s, _ in report.imported], self.ids)
         self.assertEqual(report.skipped, ())
-        for (source_id, new_id) in report.imported:
+        for source_id, new_id in report.imported:
             before = export_runs(self.source, [source_id])["runs"][0]
             after = export_runs(dest, [new_id])["runs"][0]
             self.assertEqual(normalised(after), normalised(before), source_id)
@@ -413,9 +413,11 @@ class RejectionTests(StoreCase):
                 raise sqlite3.OperationalError("disk full")
             return original(run, register)
 
-        with mock.patch.object(dest, "_insert_imported", flaky):
-            with self.assertRaisesRegex(StoreError, "nothing was stored"):
-                import_runs_json(dest, json.dumps(self.doc))
+        with (
+            mock.patch.object(dest, "_insert_imported", flaky),
+            self.assertRaisesRegex(StoreError, "nothing was stored"),
+        ):
+            import_runs_json(dest, json.dumps(self.doc))
         self.assertEqual(dest.list_runs(), [])
         self.assertEqual(dest._conn.execute("SELECT COUNT(*) FROM datasets").fetchone()[0], 0)
         self.assertEqual(dest._conn.execute("SELECT COUNT(*) FROM experiments").fetchone()[0], 0)
@@ -470,17 +472,23 @@ class FileTests(StoreCase):
             import_file(self.dest(), bad)
         big = self.dir / "big.json"
         big.write_text(self.text)
-        with mock.patch.object(importer, "MAX_FILE_BYTES", 10):
-            with self.assertRaisesRegex(RunImportError, "larger than"):
-                import_file(self.dest(), big)
+        with (
+            mock.patch.object(importer, "MAX_FILE_BYTES", 10),
+            self.assertRaisesRegex(RunImportError, "larger than"),
+        ):
+            import_file(self.dest(), big)
 
     def test_limits(self):
-        with mock.patch.object(importer, "MAX_RUNS", 2):
-            with self.assertRaisesRegex(RunImportError, "more than 2 runs"):
-                import_runs_json(self.dest(), self.text)
-        with mock.patch.object(importer, "MAX_METRIC_POINTS", 1):
-            with self.assertRaisesRegex(RunImportError, "points"):
-                import_runs_json(self.dest(), self.text)
+        with (
+            mock.patch.object(importer, "MAX_RUNS", 2),
+            self.assertRaisesRegex(RunImportError, "more than 2 runs"),
+        ):
+            import_runs_json(self.dest(), self.text)
+        with (
+            mock.patch.object(importer, "MAX_METRIC_POINTS", 1),
+            self.assertRaisesRegex(RunImportError, "points"),
+        ):
+            import_runs_json(self.dest(), self.text)
 
     def test_text_must_be_a_string(self):
         with self.assertRaises(RunImportError):

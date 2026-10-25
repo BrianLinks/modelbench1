@@ -103,12 +103,14 @@ class MigrationTests(StoreTestCase):
         conn.commit()
         conn.close()
         real_connect = sqlite3.connect
-        with mock.patch(
-            "modelbench.store.sqlite3.connect",
-            lambda *a, **k: real_connect(*a, factory=Recording, **k),
+        with (
+            mock.patch(
+                "modelbench.store.sqlite3.connect",
+                lambda *a, **k: real_connect(*a, factory=Recording, **k),
+            ),
+            self.assertRaises(StoreError),
         ):
-            with self.assertRaises(StoreError):
-                Store(future)
+            Store(future)
         self.assertEqual(len(Recording.instances), 1)
         self.assertTrue(Recording.instances[0].was_closed)
 
@@ -549,16 +551,15 @@ class ScaleAndIntegrityTests(unittest.TestCase):
                 self.assertEqual(count, 0, table)
 
     def test_a_run_cannot_reference_an_unregistered_dataset(self):
-        with Store(":memory:") as store:
-            with self.assertRaises(sqlite3.IntegrityError):
-                store._conn.execute(
-                    "INSERT INTO experiments (experiment_id, created_at) VALUES ('e', 't')"
-                )
-                store._conn.execute(
-                    "INSERT INTO runs (experiment_id, config_hash, config_json, dataset_id,"
-                    " dataset_version, seed, status, started_at, environment_json)"
-                    " VALUES ('e', 'h', '{}', 'nope', 'v', 1, 'running', 't', '{}')"
-                )
+        with Store(":memory:") as store, self.assertRaises(sqlite3.IntegrityError):
+            store._conn.execute(
+                "INSERT INTO experiments (experiment_id, created_at) VALUES ('e', 't')"
+            )
+            store._conn.execute(
+                "INSERT INTO runs (experiment_id, config_hash, config_json, dataset_id,"
+                " dataset_version, seed, status, started_at, environment_json)"
+                " VALUES ('e', 'h', '{}', 'nope', 'v', 1, 'running', 't', '{}')"
+            )
 
     def test_data_persists_across_connections(self):
         with tempfile.TemporaryDirectory() as tmp:

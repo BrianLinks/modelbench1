@@ -16,6 +16,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from . import metrics as m
 from .config import ExperimentConfig
@@ -108,12 +109,13 @@ def _execute(
     test_idx: list[int],
     artifact_dir: str | Path | None,
 ) -> RunResult:
-    model.fit([X[i] for i in train_idx], [y[i] for i in train_idx])
+    train_y: list[Any] = [y[i] for i in train_idx]  # labels, or floats for a regressor
+    model.fit([X[i] for i in train_idx], train_y)
     test_X = [X[i] for i in test_idx]
-    y_true = [y[i] for i in test_idx]
-    y_pred = model.predict(test_X)
+    y_true: list[Any] = [y[i] for i in test_idx]
+    y_pred: list[Any] = list(model.predict(test_X))
     if isinstance(model, Regressor):
-        scores = _score_regression(config.metrics, y_true, y_pred)  # type: ignore[arg-type]
+        scores = _score_regression(config.metrics, y_true, y_pred)
     else:
         scores = _score(config.metrics, model, test_X, y_true, y_pred)
 
@@ -222,7 +224,7 @@ def _check_split_for_metrics(
                 f"roc_auc needs both classes in the test split, found {len(set(test_labels))}"
             )
     if "log_loss" in names:
-        unseen = sorted(set(test_labels) - set(train_labels))
+        unseen = sorted(set(test_labels) - set(train_labels), key=str)
         if unseen:
             raise RunnerError(f"log_loss needs every test label in training; unseen: {unseen}")
 

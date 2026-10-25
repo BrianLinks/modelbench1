@@ -394,7 +394,9 @@ class Store:
 
     def _run_row(self, run_id: str) -> sqlite3.Row:
         validate_id("run", run_id)
-        row = self._conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        row: sqlite3.Row | None = self._conn.execute(
+            "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
         if row is None:
             raise StoreError(f"no run {run_id}")
         return row

@@ -182,9 +182,7 @@ class ExperimentConfig:
         return cls.from_dict(document)
 
 
-def expand_grid(
-    base: Mapping[str, Any], grid: Mapping[str, Sequence[Any]]
-) -> list[dict[str, Any]]:
+def expand_grid(base: Mapping[str, Any], grid: Mapping[str, Sequence[Any]]) -> list[dict[str, Any]]:
     """Every combination of the grid's values merged onto `base`, in a deterministic order.
 
     Keys are visited in sorted order and each key's values in the order given, so the first key

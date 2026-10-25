@@ -312,9 +312,9 @@ class ReproNoteExportRecoverTests(CliTestCase):
         self.run_experiment()
         with Store(self.db, clock=lambda: "2000-01-01T00:00:00Z") as store:
             run_id = store.create_run(
-                store.get_config("run-000001"), store.get_dataset(
-                    "blobs", store.get_run("run-000001").dataset_version
-                ), {}
+                store.get_config("run-000001"),
+                store.get_dataset("blobs", store.get_run("run-000001").dataset_version),
+                {},
             )
         code, out, _ = self.cli("recover", "--older-than", "3600")
         self.assertEqual(code, 0)
@@ -695,9 +695,11 @@ class SafeTextTests(unittest.TestCase):
 
     def test_every_command_has_help(self):
         parser = build_parser()
-        with contextlib.redirect_stdout(io.StringIO()) as out:
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["--help"])
+        with (
+            contextlib.redirect_stdout(io.StringIO()) as out,
+            self.assertRaises(SystemExit),
+        ):
+            parser.parse_args(["--help"])
         commands = ("run", "list", "show", "compare", "repro", "note", "export", "serve")
         for name in (*commands, "sample", "demo"):
             self.assertIn(name, out.getvalue())

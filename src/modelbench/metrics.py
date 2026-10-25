@@ -183,9 +183,7 @@ def precision_recall_f1(
     return PRF(precision, recall, f1, total_support)
 
 
-def roc_auc(
-    y_true: Sequence[Label], y_score: Sequence[float], positive_label: Label = 1
-) -> float:
+def roc_auc(y_true: Sequence[Label], y_score: Sequence[float], positive_label: Label = 1) -> float:
     """Area under the ROC curve for binary labels, via average ranks (ties count half)."""
     _check_pair(y_true, y_score)
     if len(set(y_true)) > 2:

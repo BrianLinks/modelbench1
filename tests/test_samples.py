@@ -12,11 +12,11 @@ from modelbench.models import create_regressor
 from modelbench.samples import (
     BASELINE_NOTE,
     DEMO_MAX_ROWS_PER_CLASS,
+    LINEAR_INTERCEPT,
     SamplesError,
     _number,
     available_samples,
     generate,
-    LINEAR_INTERCEPT,
     linear_weights,
     make_blobs,
     make_linear,
@@ -86,7 +86,7 @@ class MoonsTests(unittest.TestCase):
     def test_without_noise_points_lie_on_the_two_circles(self):
         table = make_moons(1, rows_per_class=25, noise=0.0)
         self.assertEqual(Counter(table.column("label")), {"a": 25, "b": 25})
-        for (x, y), label in zip(floats(table), table.column("label")):
+        for (x, y), label in zip(floats(table), table.column("label"), strict=True):
             if label == "a":
                 self.assertAlmostEqual(math.hypot(x, y), 1.0, delta=2e-6)
                 self.assertGreaterEqual(y, -1e-6)
@@ -123,7 +123,10 @@ class XorTests(unittest.TestCase):
     def test_the_label_is_the_sign_of_the_product_up_to_noise(self):
         table = make_xor(4, rows_per_class=300, noise=0.2)
         labels = table.column("label")
-        wrong = sum((x * y > 0) != (label == "pos") for (x, y), label in zip(floats(table), labels))
+        wrong = sum(
+            (x * y > 0) != (label == "pos")
+            for (x, y), label in zip(floats(table), labels, strict=True)
+        )
         self.assertLessEqual(wrong, 6)  # a 0.2 spread rarely crosses an axis from a corner
 
 
@@ -139,7 +142,9 @@ class LinearTests(unittest.TestCase):
         weights = linear_weights(3)
         for *x, y in ([float(c) for c in row] for row in table.rows):
             self.assertTrue(all(-5.0 <= v <= 5.0 for v in x))
-            self.assertAlmostEqual(y, 4.0 + sum(w * v for w, v in zip(weights, x)), delta=2e-6)
+            self.assertAlmostEqual(
+                y, 4.0 + sum(w * v for w, v in zip(weights, x, strict=True)), delta=2e-6
+            )
         for row in table.rows:
             self.assertTrue(all(CELL.fullmatch(cell) for cell in row), row)
 
@@ -274,8 +279,13 @@ class DemoTests(unittest.TestCase):
         self.assertEqual(Counter(r.dataset for r in runs), {"moons": 9, "xor": 9, "blobs": 9})
         self.assertEqual(
             Counter(r.model for r in runs),
-            {"majority": 3, "gaussian_nb": 3, "logistic_regression": 3, "knn": 9,
-             "decision_tree": 9},  # fmt: skip
+            {
+                "majority": 3,
+                "gaussian_nb": 3,
+                "logistic_regression": 3,
+                "knn": 9,
+                "decision_tree": 9,
+            },  # fmt: skip
         )
         stored = self.store.list_runs(limit=100)
         self.assertEqual(len(stored), 27)

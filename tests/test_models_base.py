@@ -79,7 +79,7 @@ class RegistryTests(unittest.TestCase):
             with self.assertRaises(ModelError, msg=name):  # not fitted
                 model.predict(X)
             with self.assertRaises(ModelError, msg=name):
-                model.classes_
+                _ = model.classes_
             model.fit(X, y)
             self.assertEqual(model.classes_, ("a", "b"), name)
             self.assertEqual(len(model.predict(X)), 8, name)
@@ -116,7 +116,7 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ModelError, "overflow"):
             model.fit([[1e300], [-1e300]] * 2, ["a", "b"] * 2)
         with self.assertRaises(ModelError):
-            model.classes_
+            _ = model.classes_
         model.fit([[1.0], [2.0]], ["a", "b"])
         with self.assertRaisesRegex(ModelError, "overflow"):
             model.predict([[1e300]])

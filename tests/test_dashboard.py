@@ -65,7 +65,10 @@ class DashboardTestCase(unittest.TestCase):
                 store, config(model="majority", params={}), table, "label", environment=ENV
             )  # run-000002
             run_experiment(
-                store, config(experiment_id="exp-b", params={"k": 5}), table, "label",
+                store,
+                config(experiment_id="exp-b", params={"k": 5}),
+                table,
+                "label",
                 environment={"python": "3.13.0", "lib:numpy": None},
             )  # run-000003 (fmt: skip)
             dataset = store.get_dataset("blobs", store.get_run("run-000001").dataset_version)
@@ -252,9 +255,11 @@ class RequestHandlingTests(DashboardTestCase):
         self.assertEqual(self.get("/%ff%fe").status, 400)
 
     def test_internal_errors_do_not_leak_details(self):
-        with mock.patch("modelbench.dashboard.route", side_effect=RuntimeError("secret path /etc")):
-            with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
-                response = self.get("/")
+        with (
+            mock.patch("modelbench.dashboard.route", side_effect=RuntimeError("secret path /etc")),
+            mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+        ):
+            response = self.get("/")
         self.assertEqual(response.status, 500)
         self.assertNotIn("secret", response.body)
         self.assertIn("RuntimeError", err.getvalue())
@@ -276,7 +281,7 @@ class ChartTests(unittest.TestCase):
         self.assertIn("1.0000", svg)
         lefts = [float(x) for x in re.findall(r'class="bar" x="(-?[0-9.]+)"', svg)]
         self.assertEqual(len(lefts), 2)
-        for left, width in zip(lefts, widths):
+        for left, width in zip(lefts, widths, strict=True):
             self.assertGreaterEqual(left, 120)  # inside the plot area, not off the canvas
             self.assertLessEqual(left + width, 560 - 80 + 0.5)
 
@@ -425,10 +430,12 @@ class ServerTests(DashboardTestCase):
                 if option != 4242:  # the stand-in for SO_EXCLUSIVEADDRUSE is not a real option
                     real(sock, level, option, value, *rest)
 
-            with mock.patch.object(dashboard, "os", types.SimpleNamespace(name=system)):
-                with mock.patch.object(socket, "SO_EXCLUSIVEADDRUSE", 4242, create=True):
-                    with mock.patch.object(socket.socket, "setsockopt", spy):
-                        server = make_server(self.db, "127.0.0.1", 0)
+            with (
+                mock.patch.object(dashboard, "os", types.SimpleNamespace(name=system)),
+                mock.patch.object(socket, "SO_EXCLUSIVEADDRUSE", 4242, create=True),
+                mock.patch.object(socket.socket, "setsockopt", spy),
+            ):
+                server = make_server(self.db, "127.0.0.1", 0)
             server.server_close()
             self.assertEqual((socket.SOL_SOCKET, 4242, 1) in calls, expected, system)
 
@@ -441,9 +448,11 @@ class ServerTests(DashboardTestCase):
             created.append(real_make(*args, **kwargs))
             return created[-1]
 
-        with mock.patch.object(dashboard._Server, "serve_forever", side_effect=KeyboardInterrupt):
-            with mock.patch("modelbench.dashboard.make_server", recording_make):
-                serve(self.db, "127.0.0.1", 0, out=out)
+        with (
+            mock.patch.object(dashboard._Server, "serve_forever", side_effect=KeyboardInterrupt),
+            mock.patch("modelbench.dashboard.make_server", recording_make),
+        ):
+            serve(self.db, "127.0.0.1", 0, out=out)
         self.assertIn("serving", out.getvalue())
         self.assertRegex(out.getvalue(), r"http://127\.0\.0\.1:\d+/")
         self.assertEqual(created[0].socket.fileno(), -1)  # the listening socket was closed

@@ -42,12 +42,11 @@ def gradient_max(model, X, y, l2):
     k = len(index)
     w = [[model.coef_[c][j] * sds[j] for j in range(d)] for c in range(k)]
     b = [
-        model.intercept_[c] + sum(model.coef_[c][j] * means[j] for j in range(d))
-        for c in range(k)
+        model.intercept_[c] + sum(model.coef_[c][j] * means[j] for j in range(d)) for c in range(k)
     ]
     g_w = [[l2 * w[c][j] for j in range(d)] for c in range(k)]
     g_b = [0.0] * k
-    for row, label in zip(X, y):
+    for row, label in zip(X, y, strict=True):
         z = [(row[j] - means[j]) / sds[j] for j in range(d)]
         scores = [b[c] + sum(w[c][j] * z[j] for j in range(d)) for c in range(k)]
         top = max(scores)
@@ -67,15 +66,15 @@ def objective(model, X, y, l2):
     sd = [_sd(X, j) for j in range(len(X[0]))]
     index = {c: i for i, c in enumerate(model.classes_)}
     loss = 0.0
-    for row, label in zip(X, y):
+    for row, label in zip(X, y, strict=True):
         scores = [
-            b + sum(w * v for w, v in zip(ws, row))
-            for ws, b in zip(model.coef_, model.intercept_)
+            b + sum(w * v for w, v in zip(ws, row, strict=True))
+            for ws, b in zip(model.coef_, model.intercept_, strict=True)
         ]
         top = max(scores)
         log_norm = top + math.log(sum(math.exp(s - top) for s in scores))
         loss += log_norm - scores[index[label]]
-    penalty = sum((w * s) ** 2 for ws in model.coef_ for w, s in zip(ws, sd))
+    penalty = sum((w * s) ** 2 for ws in model.coef_ for w, s in zip(ws, sd, strict=True))
     return loss / n + 0.5 * l2 * penalty
 
 
@@ -149,9 +148,7 @@ class OptimalityTests(unittest.TestCase):
 
     def test_regularisation_shrinks_the_weights(self):
         X, y = blobs(seed=5, classes=("a", "b"))
-        sizes = [
-            sum(abs(w) for w in fitted(X, y, l2=l2).coef_[1]) for l2 in (0.001, 0.1, 10.0)
-        ]
+        sizes = [sum(abs(w) for w in fitted(X, y, l2=l2).coef_[1]) for l2 in (0.001, 0.1, 10.0)]
         self.assertGreater(sizes[0], sizes[1])
         self.assertGreater(sizes[1], sizes[2])
 
@@ -171,7 +168,7 @@ class KnownAnswerTests(unittest.TestCase):
         y = ["a"] * 6 + ["b"] * 3 + ["c"] * 1
         model = fitted([[5.0]] * 10, y)
         (row,) = model.predict_proba([[5.0]])
-        for got, want in zip(row, (0.6, 0.3, 0.1)):
+        for got, want in zip(row, (0.6, 0.3, 0.1), strict=True):
             self.assertAlmostEqual(got, want, places=6)
         self.assertEqual(model.predict([[5.0]]), ["a"])
 
@@ -194,7 +191,7 @@ class KnownAnswerTests(unittest.TestCase):
         X, y = blobs(seed=6, spread=0.3)
         # with the default l2 = 0.01 the penalised optimum misclassifies one point; weaker
         # regularisation separates all 90 (the optimum itself is verified in OptimalityTests)
-        self.assertLess(sum(a != b for a, b in zip(fitted(X, y).predict(X), y)), 3)
+        self.assertLess(sum(a != b for a, b in zip(fitted(X, y).predict(X), y, strict=True)), 3)
         model = fitted(X, y, l2=1e-4)
         self.assertEqual(model.predict(X), y)
         for row in model.predict_proba(X):
@@ -204,7 +201,7 @@ class KnownAnswerTests(unittest.TestCase):
         X, y = blobs(seed=7, classes=("a", "b"))
         flipped = ["b" if label == "a" else "a" for label in y]
         original, mirror = fitted(X, y), fitted(X, flipped)
-        for p, q in zip(original.predict_proba(X), mirror.predict_proba(X)):
+        for p, q in zip(original.predict_proba(X), mirror.predict_proba(X), strict=True):
             self.assertAlmostEqual(p[0], q[1], places=9)
             self.assertAlmostEqual(p[1], q[0], places=9)
 
@@ -214,21 +211,21 @@ class InvarianceTests(unittest.TestCase):
         X, y = blobs(seed=8)
         rescaled = [[row[0] * 1000.0 + 5.0, row[1] * 0.01 - 3.0] for row in X]
         a, b = fitted(X, y), fitted(rescaled, y)
-        for p, q in zip(a.predict_proba(X), b.predict_proba(rescaled)):
-            for u, v in zip(p, q):
+        for p, q in zip(a.predict_proba(X), b.predict_proba(rescaled), strict=True):
+            for u, v in zip(p, q, strict=True):
                 self.assertAlmostEqual(u, v, places=7)
 
     def test_back_transformed_coefficients_reproduce_the_probabilities(self):
         X, y = blobs(seed=9)
         model = fitted(X, y)
-        for row, probs in zip(X[:10], model.predict_proba(X[:10])):
+        for row, probs in zip(X[:10], model.predict_proba(X[:10]), strict=True):
             scores = [
-                b + sum(w * v for w, v in zip(ws, row))
-                for ws, b in zip(model.coef_, model.intercept_)
+                b + sum(w * v for w, v in zip(ws, row, strict=True))
+                for ws, b in zip(model.coef_, model.intercept_, strict=True)
             ]
             top = max(scores)
             exps = [math.exp(s - top) for s in scores]
-            for e, p in zip(exps, probs):
+            for e, p in zip(exps, probs, strict=True):
                 self.assertAlmostEqual(e / sum(exps), p, places=9)
 
     def test_refitting_the_same_data_is_bit_identical(self):
@@ -241,8 +238,8 @@ class InvarianceTests(unittest.TestCase):
         random.Random(1).shuffle(order)
         a = fitted(X, y)
         b = fitted([X[i] for i in order], [y[i] for i in order])
-        for p, q in zip(a.predict_proba(X), b.predict_proba(X)):
-            for u, v in zip(p, q):
+        for p, q in zip(a.predict_proba(X), b.predict_proba(X), strict=True):
+            for u, v in zip(p, q, strict=True):
                 self.assertAlmostEqual(u, v, places=8)
 
 

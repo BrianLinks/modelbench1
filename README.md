@@ -46,7 +46,7 @@ config = ExperimentConfig(
 )
 with Store("runs.db") as store:
     result = run_experiment(store, config, table, "label")
-    result.metrics   # {'accuracy': 1.0, 'f1': 1.0}
+    result.metrics  # {'accuracy': 1.0, 'f1': 1.0}
 ```
 
 What it does and records:
@@ -76,9 +76,9 @@ predicted values. ROC-AUC treats the second label in sorted order as positive.
 from modelbench.reproducibility import check_reproducibility, recover_stale_runs
 
 report = check_reproducibility(store, run_id, table, "label", tolerance=1e-9)
-report.verdict                    # 'reproduced'
-report.explained_by_environment   # False
-recover_stale_runs(store, older_than_seconds=3600)   # ids of runs it closed
+report.verdict  # 'reproduced'
+report.explained_by_environment  # False
+recover_stale_runs(store, older_than_seconds=3600)  # ids of runs it closed
 ```
 
 `check_reproducibility` re-runs the run's stored config on the data you pass, in a scratch
@@ -241,7 +241,7 @@ What it will and will not do:
 ```python
 from modelbench.export import export_json, export_metrics_csv, write_text_atomic
 
-store.add_note(run_id, "baseline for the k sweep")   # allowed in any run status
+store.add_note(run_id, "baseline for the k sweep")  # allowed in any run status
 write_text_atomic("runs.json", export_json(store, [run_id]))
 export_metrics_csv(store, [run_id])
 # run_id,experiment_id,metric,step,value
@@ -303,11 +303,11 @@ mean per-example difference between two models scored on the same examples.
 ```python
 from modelbench.compare import paired_bootstrap
 
-a = [1] * 90 + [0] * 10   # model A is right on 90 of 100 examples
-b = [1] * 70 + [0] * 30   # model B is right on 70 of the same 100
+a = [1] * 90 + [0] * 10  # model A is right on 90 of 100 examples
+b = [1] * 70 + [0] * 30  # model B is right on 70 of the same 100
 result = paired_bootstrap(a, b, seed=3)
-result.mean_diff           # 0.2
-result.ci_low > 0          # True: the 95% interval excludes zero
+result.mean_diff  # 0.2
+result.ci_low > 0  # True: the 95% interval excludes zero
 ```
 
 It works on per-example scores where higher is better: 0/1 correctness for accuracy, or negated
@@ -408,7 +408,7 @@ from modelbench.metrics import accuracy, precision_recall_f1
 
 y_true = [0, 1, 2, 0, 1, 2]
 y_pred = [0, 2, 1, 0, 0, 1]
-accuracy(y_true, y_pred)                       # 0.3333...
+accuracy(y_true, y_pred)  # 0.3333...
 precision_recall_f1(y_true, y_pred, average="macro")
 ```
 

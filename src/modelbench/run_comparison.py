@@ -69,9 +69,7 @@ def _diff_to_dict(diff: RunDiff) -> dict[str, Any]:
         "same_config": diff.same_config,
         "same_dataset": diff.same_dataset,
         "same_seed": diff.same_seed,
-        "params": [
-            {"key": p.key, "kind": p.kind, "old": p.old, "new": p.new} for p in diff.params
-        ],
+        "params": [{"key": p.key, "kind": p.kind, "old": p.old, "new": p.new} for p in diff.params],
         "metrics": [
             {
                 "name": m.name,

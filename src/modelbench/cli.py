@@ -145,9 +145,7 @@ def cmd_list(args: argparse.Namespace) -> int:
             metrics = store.final_metrics(run.run_id)
             model = store.get_config(run.run_id).model
             summary = " ".join(f"{k}={_fmt(v)}" for k, v in sorted(metrics.items()))
-            rows.append(
-                (run.run_id, run.experiment_id, model, run.status, run.started_at, summary)
-            )
+            rows.append((run.run_id, run.experiment_id, model, run.status, run.started_at, summary))
             records.append(
                 {
                     "run_id": run.run_id,
