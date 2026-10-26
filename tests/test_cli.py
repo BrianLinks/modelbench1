@@ -574,6 +574,7 @@ class ErrorHandlingTests(CliTestCase):
         self.assertEqual(
             out.splitlines(),
             [
+                "bagged_trees  classification",
                 "decision_tree  classification",
                 "decision_tree_regressor  regression",
                 "gaussian_nb  classification",

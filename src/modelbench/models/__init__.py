@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..errors import ModelError
+from .bagged_trees import BaggedTrees
 from .base import Classifier, Regressor
 from .decision_tree import DecisionTreeClassifier
 from .decision_tree_regressor import DecisionTreeRegressor
@@ -24,6 +25,7 @@ REGISTRY: dict[str, type[Classifier]] = {
     GaussianNB.name: GaussianNB,
     DecisionTreeClassifier.name: DecisionTreeClassifier,
     LogisticRegression.name: LogisticRegression,
+    BaggedTrees.name: BaggedTrees,
 }
 
 REGRESSORS: dict[str, type[Regressor]] = {
@@ -85,6 +87,7 @@ def create_model(name: str, **params: Any) -> Classifier:
 __all__ = [
     "REGISTRY",
     "REGRESSORS",
+    "BaggedTrees",
     "Classifier",
     "DecisionTreeClassifier",
     "DecisionTreeRegressor",

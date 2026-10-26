@@ -17,6 +17,7 @@ All notable changes to this project are documented here.
   the best run highlighted.
 - `knn_regressor`: mean target of the k nearest rows, with the classifier's tie and weighting rules.
 - `decision_tree_regressor`: CART regression tree with the classifier's deterministic split rules.
+- `bagged_trees`: bootstrap-aggregated decision trees with seeded, repeatable samples.
 
 ### Fixed
 - Reproducibility checks no longer compare per-fold metric series the re-run does not return.

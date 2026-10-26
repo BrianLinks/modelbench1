@@ -386,6 +386,7 @@ All classifiers share `fit(X, y)`, `predict(X)`, and `predict_proba(X)`. Probabi
 | `knn` | `k`, `metric` (euclidean, manhattan), `weights` (uniform, distance); equal distances rank by training-row position |
 | `gaussian_nb` | Per-class normal distributions per feature, log space, `var_smoothing` |
 | `decision_tree` | CART with Gini impurity: `max_depth` (default 5, `None` for unlimited), `min_samples_split`, `min_samples_leaf`; leaves predict class fractions |
+| `bagged_trees` | Averages the class fractions of `n_estimators` (default 25, at most 500) decision trees, each fitted to a bootstrap sample drawn from a generator derived from `seed` (the runner derives it from the run seed, as for `stratified`); takes the tree parameters. Bagging only: every split sees every feature |
 | `logistic_regression` | Multinomial (softmax) with an L2 penalty: `l2` (default 0.01), `max_iter`, `tol`; features are standardised internally |
 
 Regression models share `fit(X, y)` and `predict(X)` with numeric targets and are used with the
