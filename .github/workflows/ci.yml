@@ -21,3 +21,31 @@ jobs:
       - run: ruff format --check .
       - run: mypy src
       - run: pytest -q
+
+  commits:
+    # Messages must follow Conventional Commits. Only commits new in this push or pull request
+    # are checked, so older history is not rewritten.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check commit messages
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            range="origin/${BASE_REF}..HEAD"
+          elif git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            range="${BEFORE}..${SHA}"
+          else
+            range="${SHA}^!"  # a new branch or a force push: check the tip only
+          fi
+          echo "checking ${range}"
+          python scripts/check_commits.py "${range}"

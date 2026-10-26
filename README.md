@@ -494,6 +494,10 @@ python -m unittest discover -s tests
 
 Python 3.10 or newer. The package has no runtime dependencies.
 
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
+(`feat(cli): add sweep`). `python scripts/check_commits.py main..HEAD` checks a range, CI checks
+every new commit, and `git config core.hooksPath .githooks` checks each message as you commit.
+
 Without installing anything, run from the project folder. On Linux and macOS:
 
 ```
