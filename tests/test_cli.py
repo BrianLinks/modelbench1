@@ -584,6 +584,7 @@ class ErrorHandlingTests(CliTestCase):
                 "logistic_regression  classification",
                 "majority  classification",
                 "mean  regression",
+                "perceptron  classification",
                 "stratified  classification",
             ],
         )

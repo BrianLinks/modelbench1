@@ -387,6 +387,7 @@ All classifiers share `fit(X, y)`, `predict(X)`, and `predict_proba(X)`. Probabi
 | `gaussian_nb` | Per-class normal distributions per feature, log space, `var_smoothing` |
 | `decision_tree` | CART with Gini impurity: `max_depth` (default 5, `None` for unlimited), `min_samples_split`, `min_samples_leaf`; leaves predict class fractions |
 | `bagged_trees` | Averages the class fractions of `n_estimators` (default 25, at most 500) decision trees, each fitted to a bootstrap sample drawn from a generator derived from `seed` (the runner derives it from the run seed, as for `stratified`); takes the tree parameters. Bagging only: every split sees every feature |
+| `perceptron` | Multiclass averaged perceptron: `max_iter` epochs (default 20, at most 10000) and `seed` for the visiting order (derived from the run seed by the runner). Features are standardised; the weights used are the average over all steps; `converged_` is true only when an epoch makes no mistakes (separable data). No learning rate exists because only the weights' direction matters. `predict_proba` is a softmax of the scores, ordered correctly but not calibrated, so `log_loss` is only a rough guide |
 | `logistic_regression` | Multinomial (softmax) with an L2 penalty: `l2` (default 0.01), `max_iter`, `tol`; features are standardised internally |
 
 Regression models share `fit(X, y)` and `predict(X)` with numeric targets and are used with the
