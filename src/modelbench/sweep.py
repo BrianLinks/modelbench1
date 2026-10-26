@@ -117,8 +117,11 @@ def run_sweep(
 ) -> SweepResult:
     """Run every grid combination of `config`. Ranks by `rank_by` (default: the first metric)."""
     metric = rank_by if rank_by is not None else config.metrics[0]
-    if metric not in config.metrics:
-        raise SweepError(f"cannot rank by {metric!r}; the config's metrics are {config.metrics}")
+    reported = set(config.metrics)
+    if config.cv_folds is not None:  # cross-validation also reports each metric's spread
+        reported |= {f"{name}_std" for name in config.metrics}
+    if metric not in reported:
+        raise SweepError(f"cannot rank by {metric!r}; the config reports {sorted(reported)}")
     higher_is_better(metric)  # fail now, not after the runs, if the direction is unknown
     configs = expand_config(config, grid)
     entries: list[SweepEntry] = []

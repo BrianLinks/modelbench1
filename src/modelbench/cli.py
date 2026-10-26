@@ -1,8 +1,8 @@
 """Command-line interface: `modelbench [--db PATH] <command> ...`.
 
 Exit codes: 0 success; 1 for a negative result that is not an error (`repro` when the run is not
-reproduced); 2 for bad arguments, a ModelBench error, or a file system error, with a one-line
-message on stderr.
+reproduced, `sweep` when some combination failed); 2 for bad arguments, a ModelBench error, or a
+file system error, with a one-line message on stderr.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from . import confusion
+from .compare import higher_is_better
 from .config import ExperimentConfig
 from .dashboard import DEFAULT_PORT, serve
 from .datasets import make_version, read_csv
@@ -29,6 +30,7 @@ from .run_comparison import RunComparison, compare_runs
 from .runner import run_experiment
 from .samples import available_samples, generate, run_demo, table_to_csv
 from .store import STATUSES, Store
+from .sweep import SweepResult, load_sweep, run_sweep
 
 DEFAULT_DB = "modelbench.db"
 
@@ -135,6 +137,77 @@ def cmd_run(args: argparse.Namespace) -> int:
     for name, value in sorted(result.metrics.items()):
         print(f"{name}  {_fmt(value)}")
     return 0
+
+
+def _params_text(params: dict[str, Any]) -> str:
+    return " ".join(f"{name}={json.dumps(value)}" for name, value in params.items())
+
+
+def _render_sweep(result: SweepResult, metrics: Sequence[str]) -> str:
+    direction = "higher" if higher_is_better(result.rank_metric) else "lower"
+    reused = sum(1 for e in result.entries if e.reused)
+    header = f"sweep {result.experiment_id}: {len(result.entries)} combinations"
+    if reused:
+        header += f" ({reused} reused)"
+    lines = [f"{header}, ranked by {result.rank_metric} ({direction} is better)", ""]
+    rows = [["rank", "run", "params", *metrics]]
+    for rank, entry in result.ranked_entries():
+        cells = [str(rank) if rank else "-", entry.run_id or "-", _params_text(entry.params)]
+        cells += [_fmt(entry.metrics[m]) if m in entry.metrics else "-" for m in metrics]
+        rows.append([_safe(cell) for cell in cells])
+    lines.append(_table(rows))
+    for entry in result.failed:
+        lines.append(f"failed  {_safe(_params_text(entry.params))}: {_safe(entry.error)}")
+    best = result.best()
+    lines.append("")
+    lines.append(
+        f"best {best.run_id}  {_safe(_params_text(best.params))}" if best else "no run succeeded"
+    )
+    return "\n".join(lines)
+
+
+def cmd_sweep(args: argparse.Namespace) -> int:
+    config, grid = load_sweep(args.sweep)
+    table = read_csv(args.data)
+    with Store(args.db) as store:
+        result = run_sweep(
+            store,
+            config,
+            grid,
+            table,
+            args.label,
+            feature_columns=_split_list(args.features, "--features"),
+            artifact_dir=args.artifact_dir,
+            reuse_existing=not args.no_reuse,
+            rank_by=args.rank_by,
+            stop_on_error=args.stop_on_error,
+        )
+    ranks = {r.run_id: r.rank for r in result.ranking.ranked}
+    if args.json:
+        best = result.best()
+        print(
+            _json(
+                {
+                    "experiment_id": result.experiment_id,
+                    "rank_metric": result.rank_metric,
+                    "best": best.run_id if best else None,
+                    "entries": [
+                        {
+                            "params": e.params,
+                            "run_id": e.run_id,
+                            "rank": ranks.get(e.run_id) if e.run_id and e.error is None else None,
+                            "reused": e.reused,
+                            "metrics": e.metrics,
+                            "error": e.error,
+                        }
+                        for e in result.entries
+                    ],
+                }
+            )
+        )
+    else:
+        print(_render_sweep(result, config.metrics))
+    return 1 if result.failed else 0
 
 
 def cmd_list(args: argparse.Namespace) -> int:
@@ -417,6 +490,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--features", help="comma-separated feature columns (default: all others)")
     p.add_argument("--artifact-dir", help="also write the predictions here")
     p.add_argument("--reuse", action="store_true", help="reuse an identical completed run")
+
+    p = add("sweep", cmd_sweep, "run every combination of a parameter grid and rank them", True)
+    p.add_argument("sweep", help='sweep file: {"config": {...}, "grid": {"param": [values]}}')
+    p.add_argument("--data", required=True, help="CSV file")
+    p.add_argument("--label", required=True, help="label column")
+    p.add_argument("--features", help="comma-separated feature columns (default: all others)")
+    p.add_argument("--artifact-dir", help="also write each run's predictions here")
+    p.add_argument("--rank-by", help="metric to rank by (default: the config's first metric)")
+    p.add_argument("--no-reuse", action="store_true", help="re-run combinations already stored")
+    p.add_argument("--stop-on-error", action="store_true", help="stop at the first failure")
 
     p = add("list", cmd_list, "list runs, newest first", True)
     p.add_argument("--experiment")

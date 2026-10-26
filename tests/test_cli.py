@@ -749,5 +749,121 @@ class EntryPointTests(unittest.TestCase):
         self.assertIn("no database", bad.stderr)
 
 
+class SweepCommandTests(CliTestCase):
+    def sweep_file(self, grid, name="sweep.json", **config):
+        document = {"config": json.loads(config_text(params={}, **config)), "grid": grid}
+        path = self.dir / name
+        path.write_text(json.dumps(document))
+        return path
+
+    def sweep(self, grid, *extra, **config):
+        return self.cli(
+            "sweep",
+            self.sweep_file(grid, **config),
+            "--data",
+            self.data,
+            "--label",
+            "label",
+            *extra,
+        )
+
+    def test_text_output_ranks_the_combinations(self):
+        code, out, err = self.sweep({"k": [1, 3]})
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(
+            out.splitlines(),
+            [
+                "sweep exp-a: 2 combinations, ranked by accuracy (higher is better)",
+                "",
+                "rank  run         params  accuracy  f1",
+                "1     run-000001  k=1     1.0000    1.0000",
+                "1     run-000002  k=3     1.0000    1.0000",
+                "",
+                "best run-000001  k=1",
+            ],
+        )
+        self.assertEqual(len(json.loads(self.cli("list", "--json")[1])), 2)
+
+    def test_failures_are_listed_and_set_exit_code_one(self):
+        code, out, err = self.sweep({"k": [0, 1]})
+        self.assertEqual((code, err), (1, ""))
+        lines = out.splitlines()
+        self.assertEqual(lines[3], "1     run-000001  k=1     1.0000    1.0000")
+        self.assertEqual(lines[4], "-     -           k=0     -         -")
+        self.assertEqual(lines[5], "failed  k=0: k must be a positive integer, got 0")
+        self.assertEqual(lines[-1], "best run-000001  k=1")
+
+    def test_when_nothing_succeeds_there_is_no_best(self):
+        code, out, _ = self.sweep({"k": [0]})
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines()[-1], "no run succeeded")
+
+    def test_running_again_reuses_runs_unless_told_not_to(self):
+        self.sweep({"k": [1, 3]})
+        code, out, _ = self.sweep({"k": [1, 3]})
+        self.assertEqual(code, 0)
+        self.assertIn("2 combinations (2 reused), ranked", out.splitlines()[0])
+        self.assertEqual(len(json.loads(self.cli("list", "--json")[1])), 2)
+        self.sweep({"k": [1, 3]}, "--no-reuse")
+        self.assertEqual(len(json.loads(self.cli("list", "--json")[1])), 4)
+
+    def test_rank_by_and_direction(self):
+        code, out, _ = self.sweep({"k": [1]}, "--rank-by", "f1")
+        self.assertEqual(code, 0)
+        self.assertIn("ranked by f1 (higher is better)", out)
+        code, _, err = self.sweep({"k": [1]}, "--rank-by", "recall")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot rank by 'recall'", err)
+
+    def test_a_lower_is_better_metric_is_announced_as_such(self):
+        code, out, _ = self.sweep(
+            {"k": [1, 3]}, "--rank-by", "log_loss", metrics=["accuracy", "log_loss"]
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("ranked by log_loss (lower is better)", out)
+
+    def test_json_output(self):
+        code, out, _ = self.sweep({"k": [0, 1]}, "--json")
+        self.assertEqual(code, 1)
+        data = json.loads(out)
+        self.assertEqual(data["experiment_id"], "exp-a")
+        self.assertEqual(data["rank_metric"], "accuracy")
+        self.assertEqual(data["best"], "run-000001")
+        bad, good = data["entries"]
+        self.assertEqual((bad["params"], bad["run_id"], bad["rank"]), ({"k": 0}, None, None))
+        self.assertIn("positive integer", bad["error"])
+        self.assertEqual(
+            (good["params"], good["run_id"], good["rank"]), ({"k": 1}, "run-000001", 1)
+        )
+        self.assertEqual(good["metrics"], {"accuracy": 1.0, "f1": 1.0})
+        self.assertFalse(good["reused"])
+
+    def test_stop_on_error(self):
+        code, out, _ = self.sweep({"k": [0, 1]}, "--stop-on-error")
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines()[-1], "no run succeeded")
+
+    def test_cross_validated_sweep_creates_cv_runs(self):
+        code, out, _ = self.sweep({"k": [1]}, cv_folds=4)
+        self.assertEqual(code, 0)
+        shown = json.loads(self.cli("show", "run-000001", "--json")[1])
+        self.assertEqual(shown["tags"]["cv_folds"], "4")
+
+    def test_stored_text_cannot_inject_terminal_escapes(self):
+        code, out, _ = self.sweep({"metric": ["\x1b[31mred"]})
+        self.assertEqual(code, 1)
+        self.assertNotIn("\x1b", out)
+        self.assertIn("\\x1b[31mred", out)
+
+    def test_bad_input_is_an_error(self):
+        code, _, err = self.cli(
+            "sweep", self.dir / "nope.json", "--data", self.data, "--label", "label"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("cannot read sweep file", err)
+        code, _, err = self.cli("sweep", self.sweep_file({"k": [1]}), "--label", "label")
+        self.assertEqual(code, 2)  # --data is required
+
+
 if __name__ == "__main__":
     unittest.main()
