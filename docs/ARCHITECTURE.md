@@ -17,7 +17,7 @@ Each layer imports only from its own layer or the layers above it in this list.
 4. **Store**: `store` is the only module that touches SQLite.
 5. **Runner**: `runner.run_experiment` splits, fits, scores, and records one run.
 6. **Analysis and exchange**: `compare`, `run_comparison`, `reproducibility`, `export`,
-   `importer`, `samples`.
+   `importer`, `sweep`, `samples`.
 7. **Interfaces**: `cli` (the `modelbench` command) and `dashboard` (read-only web view).
 
 ## What happens in one run

@@ -2,6 +2,7 @@ import hashlib
 import http.client
 import io
 import json
+import math
 import os
 import re
 import socket
@@ -21,12 +22,14 @@ from modelbench.dashboard import (
     is_loopback_host,
     line_chart,
     make_server,
+    scatter_chart,
     serve,
 )
 from modelbench.datasets import Table, make_version
 from modelbench.errors import DashboardError, StoreError
 from modelbench.runner import run_experiment
 from modelbench.store import Store
+from modelbench.sweep import run_sweep
 
 ENV = {"python": "3.12.1", "lib:numpy": None}
 XSS = '<script>alert("x")</script>'
@@ -456,6 +459,165 @@ class ServerTests(DashboardTestCase):
         self.assertIn("serving", out.getvalue())
         self.assertRegex(out.getvalue(), r"http://127\.0\.0\.1:\d+/")
         self.assertEqual(created[0].socket.fileno(), -1)  # the listening socket was closed
+
+
+class ScatterChartTests(unittest.TestCase):
+    def circles(self, svg):
+        return [
+            (float(x), float(y))
+            for x, y in re.findall(r'<circle class="dot[^"]*" cx="([0-9.]+)" cy="([0-9.]+)"', svg)
+        ]
+
+    def test_numeric_axis_puts_the_extremes_on_the_plot_edges(self):
+        svg = scatter_chart("t", [(1, 0.0, "a"), (3, 1.0, "b")], "k")
+        # plot area: x from 56 to 544, y from 176 (bottom) up to 12 (top)
+        self.assertEqual(self.circles(svg), [(56.0, 176.0), (544.0, 12.0)])
+        self.assertIn(">0.0000<", svg)
+        self.assertIn(">1.0000<", svg)
+
+    def test_the_last_label_is_pulled_back_inside_the_chart(self):
+        svg = scatter_chart("t", [(1, 0.0, "a"), (3, 1.0, "b")], "k")
+        self.assertIn('x="544.0" y="192" text-anchor="end">3</text>', svg)
+        self.assertIn('x="56.0" y="192" text-anchor="middle">1</text>', svg)
+
+    def test_every_distinct_value_gets_a_tick_label(self):
+        svg = scatter_chart("t", [(1, 0.0, "a"), (2, 1.0, "b"), (2, 0.5, "c"), (4, 0.2, "d")], "k")
+        ticks = re.findall(r'text-anchor="(?:middle|end)">([0-9.e-]+)</text>', svg)
+        self.assertEqual([t for t in ticks if "." not in t], ["1", "2", "4"])
+
+    def test_a_wide_range_with_a_zero_uses_a_shifted_log_scale(self):
+        svg = scatter_chart("t", [(0, 0.1, "a"), (1, 0.2, "b"), (1000, 0.3, "c")], "l2")
+        xs = [x for x, _ in self.circles(svg)]
+        expected = 56 + math.log10(2) / math.log10(1001) * 488
+        self.assertEqual(xs[0], 56.0)
+        self.assertAlmostEqual(xs[1], expected, places=1)
+        self.assertEqual(xs[2], 544.0)
+        self.assertIn("l2 (log scale)", svg)
+
+    def test_a_narrow_range_stays_linear(self):
+        svg = scatter_chart("t", [(1, 0.1, "a"), (10, 0.2, "b"), (100, 0.3, "c")], "k")
+        self.assertNotIn("log scale", svg)
+        self.assertAlmostEqual(self.circles(svg)[1][0], 56 + 9 / 99 * 488, places=1)
+
+    def test_non_numbers_get_one_slot_each_in_sorted_order(self):
+        svg = scatter_chart("t", [("b", 0.1, "x"), ("a", 0.2, "y")], "weights")
+        self.assertEqual([x for x, _ in self.circles(svg)], [422.0, 178.0])
+        mixed = scatter_chart("t", [(True, 0.1, "x"), (3, 0.2, "y")], "p")  # a bool is not a number
+        self.assertIn(">True<", mixed)
+        self.assertEqual(len(self.circles(mixed)), 2)
+
+    def test_degenerate_inputs_are_centred_and_never_nan(self):
+        self.assertEqual(scatter_chart("t", [], "k"), "")
+        one = scatter_chart("t", [(5, 0.5, "a")], "k")
+        self.assertEqual(self.circles(one), [(300.0, 94.0)])
+        flat = scatter_chart("t", [(1, 0.5, "a"), (2, 0.5, "b")], "k")
+        self.assertEqual({y for _, y in self.circles(flat)}, {94.0})
+        for svg in (one, flat):
+            self.assertNotIn("nan", svg.lower())
+
+    def test_infinite_x_values_fall_back_to_categories(self):
+        svg = scatter_chart("t", [(float("inf"), 0.1, "a"), (1.0, 0.2, "b")], "p")
+        self.assertNotIn("nan", svg.lower())
+        self.assertNotIn("inf</text>x", svg)
+        self.assertEqual(len(self.circles(svg)), 2)
+
+    def test_only_the_best_dot_is_highlighted_and_text_is_escaped(self):
+        svg = scatter_chart(XSS, [(1, 0.1, XSS), (2, 0.9, "ok")], XSS, best=1)
+        self.assertEqual(svg.count('class="dot best"'), 1)
+        self.assertLess(svg.index('class="dot"'), svg.index('class="dot best"'))
+        self.assertNotIn("<script>", svg)
+        self.assertIn("&lt;script&gt;", svg)
+
+
+class ExperimentPageTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.db = Path(self._tmp.name) / "sweep.db"
+        line = Table(("x", "y"), tuple((str(i), repr(2.0 * i + 1.0)) for i in range(40)))
+        with Store(self.db) as store:
+            ridge = config(
+                experiment_id="ridge", model="linear_regression", dataset_id="line", params={},
+                metrics=("r2", "mae"),
+            )  # fmt: skip
+            run_sweep(store, ridge, {"l2": [0.0, 1e6, 100.0]}, line, "y", environment=ENV)
+            knn = config(experiment_id="knn-w", params={"k": 3})
+            run_sweep(
+                store, knn, {"weights": ["uniform", "distance"]}, blobs(), "label", environment=ENV
+            )
+            lone = config(experiment_id="lone", params={"k": 3})
+            run_experiment(store, lone, blobs(), "label", environment=ENV)
+
+    def get(self, target):
+        return handle(self.db, target, "localhost:8765", True)
+
+    def test_the_best_run_is_highlighted_and_runs_are_listed_best_first(self):
+        response = self.get("/experiment/ridge")
+        self.assertEqual(response.status, 200)
+        body = response.body
+        self.assertIn("3 completed run(s)", body)
+        self.assertIn("<h2>r2 by l2</h2>", body)  # the config's first metric, the first parameter
+        self.assertEqual(body.count('class="dot best"'), 1)
+        self.assertRegex(body, r'class="dot best"[^>]*><title>run-000001: 1\.0000</title>')
+        listed = re.findall(r'<td><a href="/run/(run-\d+)">', body)
+        self.assertEqual(listed, ["run-000001", "run-000003", "run-000002"])  # l2 = 0, 100, 1e6
+
+    def test_lower_is_better_metrics_list_the_smallest_first(self):
+        body = self.get("/experiment/ridge?param=l2&metric=mae").body
+        self.assertIn("<h2>mae by l2</h2>", body)
+        self.assertRegex(body, r'class="dot best"[^>]*><title>run-000001: 0\.0000</title>')
+        listed = re.findall(r'<td><a href="/run/(run-\d+)">', body)
+        self.assertEqual(listed, ["run-000001", "run-000003", "run-000002"])
+
+    def test_a_text_parameter_is_plotted_by_category(self):
+        body = self.get("/experiment/knn-w").body
+        self.assertIn("<h2>accuracy by weights</h2>", body)
+        self.assertIn(">distance<", body)
+        self.assertIn(">uniform<", body)
+        self.assertIn('<option value="weights" selected>', body)
+
+    def test_the_form_offers_only_varying_parameters_and_recorded_metrics(self):
+        body = self.get("/experiment/ridge").body
+        self.assertIn('<option value="l2" selected>l2</option>', body)
+        self.assertIn('<option value="mae">mae</option>', body)
+        self.assertNotIn("fold/", body)
+
+    def test_nothing_varies_in_a_single_run_experiment(self):
+        response = self.get("/experiment/lone")
+        self.assertEqual(response.status, 200)
+        self.assertIn("nothing to plot", response.body)
+        self.assertNotIn('<svg class="chart"', response.body)
+        self.assertIn("run-000006", response.body)  # still listed
+
+    def test_unknown_experiment_and_bad_choices(self):
+        none = self.get("/experiment/nope")
+        self.assertEqual(none.status, 200)
+        self.assertIn("No completed runs.", none.body)
+        bad = self.get("/experiment/ridge?param=zzz")
+        self.assertEqual(bad.status, 400)
+        self.assertIn("param must be one of: l2", bad.body)
+        self.assertEqual(self.get("/experiment/ridge?metric=zzz").status, 400)
+        self.assertEqual(self.get("/experiment/ridge?metric=r2&metric=mae").status, 400)
+
+    def test_the_experiment_name_in_the_url_is_escaped(self):
+        body = self.get("/experiment/%3Cscript%3Ealert(1)%3C/script%3E").body
+        self.assertNotIn("<script>alert(1)", body)
+        self.assertIn("&lt;script&gt;", body)
+
+    def test_failed_runs_are_left_out(self):
+        with Store(self.db) as store:
+            dataset = store.get_dataset("blobs", store.get_run("run-000006").dataset_version)
+            failed = store.create_run(config(experiment_id="lone"), dataset, ENV)
+            store.fail_run(failed, "boom")
+        self.assertIn("1 completed run(s)", self.get("/experiment/lone").body)
+
+    def test_the_index_and_run_pages_link_to_the_experiment(self):
+        self.assertIn('<a href="/experiment/ridge">ridge</a>', self.get("/").body)
+        self.assertIn('<a href="/experiment/ridge">ridge</a>', self.get("/run/run-000001").body)
+
+    def test_the_page_carries_no_script(self):
+        body = self.get("/experiment/ridge").body
+        self.assertNotIn("<script", body)
 
 
 class RegressionRunsTests(unittest.TestCase):

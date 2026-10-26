@@ -21,6 +21,7 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.reproducibility`: re-run a stored run and compare it, and close runs a crash left
   in `running`
 - `modelbench.export`: export runs as JSON or a metrics CSV, written atomically
+- `modelbench.sweep`: run a parameter grid as one experiment and rank the runs
 - `modelbench.importer`: import a JSON export into a store, all or nothing, skipping runs already there
 - `modelbench.cli`: the `modelbench` command (also `python -m modelbench`)
 - `modelbench.dashboard`: a read-only local web dashboard (`modelbench serve`)
@@ -109,6 +110,7 @@ modelbench [--db runs.db] <command> ...
 | Command | What it does |
 |---|---|
 | `run CONFIG.json --data F.csv --label COL` | run an experiment (`--features a,b`, `--artifact-dir D`, `--reuse`) |
+| `sweep SWEEP.json --data F.csv --label COL` | run every combination of a parameter grid and rank them (`--rank-by`, `--no-reuse`, `--stop-on-error`) |
 | `list` | runs, newest first (`--experiment`, `--status`, `--limit`) |
 | `show RUN` | one run in full: config, metrics, tags, files, notes |
 | `compare RUN RUN ...` | the first run is the baseline (`--metrics a,b`) |
@@ -123,7 +125,7 @@ modelbench [--db runs.db] <command> ...
 | `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version |
 | `models` | list the available models |
 
-`run`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
+`run`, `sweep`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
 defaults to `modelbench.db`; only `run` creates it, and every other command reports a missing
 database instead of making an empty one. A config file is the JSON form of an experiment:
 
@@ -158,6 +160,40 @@ error); 2 for bad arguments or any error, with one `error: ...` line on stderr. 
 the database (notes, error messages) is printed with control characters escaped, so a stored
 note cannot send terminal escape sequences. Ctrl-C during `run` leaves the run `running`;
 `recover` closes it later.
+
+## Sweeps
+
+A sweep file holds an ordinary config and a grid of parameter values:
+
+```json
+{"config": {"experiment_id": "ridge", "model": "linear_regression", "seed": 1,
+            "dataset_id": "lin", "metrics": ["r2", "mae"], "params": {}},
+ "grid": {"l2": [0, 0.01, 0.1, 1, 10, 100]}}
+```
+
+```
+$ modelbench sweep ridge.json --data lin.csv --label y
+sweep ridge: 6 combinations, ranked by r2 (higher is better)
+
+rank  run         params   r2       mae
+1     run-000003  l2=0.1   0.8469   2.2651
+2     run-000002  l2=0.01  0.8389   2.2750
+...
+best run-000003  l2=0.1
+```
+
+Every combination is a normal run of the same experiment, in grid order (the first key, in
+alphabetical order, varies slowest). Runs are ranked by the config's first metric, or by
+`--rank-by`; a cross-validated sweep can also rank by `<metric>_std`. A combination that fails,
+such as `k` larger than the training set, is listed with its error and the sweep carries on
+(`--stop-on-error` stops instead) and the exit code is 1. Combinations already stored with
+identical settings on the same data are reused, so a sweep can be re-run or extended cheaply
+(`--no-reuse` repeats them). A grid key must not also be in the config's `params`.
+
+The dashboard's experiment page (`/experiment/<id>`, linked from the run list and run pages)
+plots one parameter against one metric for the experiment's completed runs and highlights the
+best run. Pick the parameter and metric with the form; positive values spanning three orders of
+magnitude get a log axis (a zero is kept), and text parameters get one slot per value.
 
 ## Sample data and demo
 
@@ -215,7 +251,8 @@ rows per class to stay quick, and `blobs` to 100,000 rows and 1,000,000 values.
 modelbench --db runs.db serve            # http://127.0.0.1:8765/
 ```
 
-Pages: the run list (filter by experiment and status, tick runs to compare), one run in full
+Pages: the run list (filter by experiment and status, tick runs to compare), an experiment
+page plotting a parameter against a metric, one run in full
 (metrics, a line chart for any metric logged over several steps, tags, files, environment,
 notes), and a comparison with a bar chart per metric, rankings, and parameter and environment
 differences. For the comparison page the oldest selected run is the baseline unless you pick

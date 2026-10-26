@@ -16,6 +16,7 @@ from __future__ import annotations
 import html
 import ipaddress
 import json
+import math
 import os
 import socket
 import sys
@@ -24,10 +25,11 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, TextIO
-from urllib.parse import parse_qs, unquote, urlencode, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 from . import confusion
-from .errors import DashboardError, MetricError, ModelBenchError, StoreError
+from .compare import flatten_params, higher_is_better
+from .errors import CompareError, DashboardError, MetricError, ModelBenchError, StoreError
 from .export import export_runs
 from .metrics import ConfusionMatrix
 from .run_comparison import RunComparison, compare_runs
@@ -148,6 +150,90 @@ def line_chart(title: str, points: Sequence[tuple[int, float]], width: int = 560
     )
 
 
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _shorten(text: str, limit: int = 14) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "\u2026"
+
+
+def scatter_chart(
+    title: str,
+    points: Sequence[tuple[Any, float, str]],
+    x_name: str,
+    best: int | None = None,
+    width: int = 560,
+) -> str:
+    """One dot per `(x, y, label)`. The x axis is numeric when every x is a number (log scale
+    when positive values span three orders of magnitude), otherwise one slot per distinct value.
+    The dot at index `best` is highlighted."""
+    if not points:
+        return ""
+    height, left, right, top, bottom = 220, 56, 16, 12, 44
+    plot_w, plot_h = width - left - right, height - top - bottom
+    ys = [y for _, y, _ in points]
+    y_lo, y_hi = min(ys), max(ys)
+
+    def py(value: float) -> float:
+        if y_hi == y_lo:
+            return top + plot_h / 2
+        return top + (1 - (value - y_lo) / (y_hi - y_lo)) * plot_h
+
+    log = False
+    ticks: list[tuple[float, str]]
+    if all(_is_number(x) for x, _, _ in points):
+        xs = [float(x) for x, _, _ in points]
+        positive = [x for x in xs if x > 0]
+        smallest = min(positive) if positive else 0.0
+        # A wide range of non-negative values gets a log scale; a zero is kept by shifting the
+        # scale to log10(1 + x / smallest positive value), which maps zero to zero.
+        log = min(xs) >= 0 and bool(positive) and max(xs) / smallest >= 1000
+
+        def scale(x: float) -> float:
+            return math.log10(1 + x / smallest) if log else x
+
+        lo, hi = scale(min(xs)), scale(max(xs))
+
+        def px(x: Any) -> float:
+            share = (scale(float(x)) - lo) / (hi - lo) if hi > lo else 0.5
+            return left + share * plot_w
+
+        distinct = sorted(set(xs))
+        shown = distinct if len(distinct) <= 8 else [distinct[0], distinct[-1]]
+        ticks = [(px(x), f"{x:g}") for x in shown]
+    else:
+        categories = sorted({str(x) for x, _, _ in points})
+
+        def px(x: Any) -> float:
+            return left + (categories.index(str(x)) + 0.5) / len(categories) * plot_w
+
+        ticks = [(px(c), _shorten(c)) for c in categories]
+    dots = "".join(
+        f'<circle class="dot{" best" if i == best else ""}" cx="{px(x):.1f}" cy="{py(y):.1f}" '
+        f'r="{5 if i == best else 3.5}"><title>{esc(label)}: {fmt(y)}</title></circle>'
+        for i, (x, y, label) in enumerate(points)
+    )
+    tick_text = "".join(
+        f'<text class="axis" x="{x:.1f}" y="{height - bottom + 16}" '
+        f'text-anchor="{"end" if x > width - right - 24 else "middle"}">{esc(text)}</text>'
+        for x, text in ticks
+    )
+    axis_name = f"{x_name} (log scale)" if log else x_name
+    return (
+        f'<svg class="chart" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+        f'aria-label="{esc(title)}"><title>{esc(title)}</title>'
+        f'<line class="zero" x1="{left}" y1="{top}" x2="{left}" y2="{height - bottom}"/>'
+        f'<line class="zero" x1="{left}" y1="{height - bottom}" x2="{width - right}" '
+        f'y2="{height - bottom}"/>{dots}'
+        f'<text class="axis" x="{left - 6}" y="{top + 9}" text-anchor="end">{fmt(y_hi)}</text>'
+        f'<text class="axis" x="{left - 6}" y="{height - bottom}" text-anchor="end">'
+        f"{fmt(y_lo)}</text>{tick_text}"
+        f'<text class="axis" x="{left + plot_w / 2:.1f}" y="{height - 6}" text-anchor="middle">'
+        f"{esc(axis_name)}</text></svg>"
+    )
+
+
 def confusion_heatmap(cm: ConfusionMatrix, title: str = "Confusion matrix") -> str:
     """Rows are true labels, columns predicted. Each cell is shaded by its share of its row, so
     the diagonal shows per-class recall at a glance; the count is written in the cell."""
@@ -212,6 +298,7 @@ table+table,p+table{margin-top:1em}form{margin:.6em 0 1em}
 .card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px}
 .chart{max-width:100%;height:auto}.bar,.dot{fill:var(--bar)}
 .line{fill:none;stroke:var(--bar);stroke-width:2}.zero{stroke:var(--muted);stroke-width:1}
+.dot.best{fill:var(--ok);stroke:var(--fg)}
 .axis{fill:var(--muted);font-size:12px}
 .cell{fill:var(--bar);stroke:var(--line)}.count{fill:var(--fg);font-size:13px}
 pre{white-space:pre-wrap;word-break:break-word;margin:0}
@@ -282,7 +369,8 @@ def render_index(store: Store, query: dict[str, list[str]]) -> str:
             f'<tr><td><input type="checkbox" name="run" value="{esc(run.run_id)}" '
             f'aria-label="compare {esc(run.run_id)}"></td>'
             f'<td><a href="/run/{esc(run.run_id)}">{esc(run.run_id)}</a></td>'
-            f"<td>{esc(run.experiment_id)}</td><td>{esc(model)}</td>"
+            f'<td><a href="/experiment/{esc(quote(run.experiment_id, safe=""))}">'
+            f"{esc(run.experiment_id)}</a></td><td>{esc(model)}</td>"
             f'<td class="{_status_class(run.status)}">{esc(run.status)}</td>'
             f"<td>{esc(run.started_at)}</td><td>{metrics}</td></tr>"
         )
@@ -307,7 +395,11 @@ def render_run(store: Store, run_id: str) -> str:
     dataset, config = run["dataset"], run["config"]
     summary = [
         ("status", f'<span class="{_status_class(run["status"])}">{esc(run["status"])}</span>'),
-        ("experiment", esc(run["experiment_id"])),
+        (
+            "experiment",
+            f'<a href="/experiment/{esc(quote(run["experiment_id"], safe=""))}">'
+            f"{esc(run['experiment_id'])}</a>",
+        ),
         ("started", esc(run["started_at"])),
         ("finished", esc(run["finished_at"] or "-")),
         ("model", esc(config["model"])),
@@ -468,6 +560,102 @@ def render_compare(store: Store, query: dict[str, list[str]]) -> str:
     return page("Compare", "".join(body))
 
 
+# -- experiment page: a parameter against a metric -------------------------------------------
+
+
+def _param_text(value: Any) -> str:
+    return value if isinstance(value, str) else json.dumps(value, sort_keys=True)
+
+
+def _choice(query: dict[str, list[str]], key: str, options: Sequence[str]) -> str | None:
+    chosen = _query_one(query, key)
+    if chosen is not None and chosen not in options:
+        raise DashboardError(f"{key} must be one of: {', '.join(options)}")
+    return chosen
+
+
+def render_experiment(store: Store, experiment_id: str, query: dict[str, list[str]]) -> str:
+    """Completed runs of one experiment, and how one parameter moves one metric."""
+    runs = store.list_runs(experiment_id, "completed", MAX_LIST)
+    title = f"Experiment {experiment_id}"
+    if not runs:
+        return page(title, f"<h1>{esc(title)}</h1><p>No completed runs.</p>")
+    params: dict[str, dict[str, Any]] = {}
+    metrics: dict[str, dict[str, float]] = {}
+    for run in runs:
+        config = store.get_config(run.run_id)
+        try:
+            params[run.run_id] = flatten_params(config.params)
+        except CompareError:
+            params[run.run_id] = {}
+        metrics[run.run_id] = {
+            k: v for k, v in store.final_metrics(run.run_id).items() if not k.startswith("fold/")
+        }
+    values_by_param: dict[str, set[str]] = {}
+    for flat in params.values():
+        for name, value in flat.items():
+            values_by_param.setdefault(name, set()).add(_param_text(value))
+    varying = sorted(n for n, seen in values_by_param.items() if len(seen) > 1)
+    metric_names = sorted({n for m in metrics.values() for n in m})
+    if not metric_names:
+        return page(title, f"<h1>{esc(title)}</h1><p>These runs recorded no metrics.</p>")
+    newest_first = store.get_config(runs[0].run_id).metrics
+    default_metric = next((m for m in newest_first if m in metric_names), metric_names[0])
+    metric = _choice(query, "metric", metric_names) or default_metric
+    param = _choice(query, "param", varying) or (varying[0] if varying else None)
+
+    def option(name: str, selected: str | None) -> str:
+        mark = " selected" if name == selected else ""
+        return f'<option value="{esc(name)}"{mark}>{esc(name)}</option>'
+
+    form = ""
+    if varying:
+        form = (
+            f'<form method="get" action="/experiment/{esc(quote(experiment_id, safe=""))}">'
+            f'<label>parameter <select name="param">{"".join(option(n, param) for n in varying)}'
+            f'</select></label> <label>metric <select name="metric">'
+            f"{''.join(option(n, metric) for n in metric_names)}</select></label> "
+            "<button>Plot</button></form>"
+        )
+    body = [f"<h1>{esc(title)}</h1>", f"<p>{len(runs)} completed run(s).</p>", form]
+
+    scored = [r for r in runs if metric in metrics[r.run_id]]
+    try:
+        high: bool | None = higher_is_better(metric)
+    except CompareError:  # a metric with no known direction: listed, but nothing is "best"
+        high = None
+    sign = -1.0 if high else 1.0
+    # best first; equal values keep the earliest run first, as `compare` does
+    ordered = sorted(scored, key=lambda r: (sign * metrics[r.run_id][metric], r.run_id))
+    best_id = ordered[0].run_id if ordered and high is not None else None
+    if param is None:
+        body.append(
+            '<p class="muted">No parameter differs between these runs, so there is nothing '
+            "to plot.</p>"
+        )
+    else:
+        plotted = [r for r in scored if param in params[r.run_id]]
+        points = [(params[r.run_id][param], metrics[r.run_id][metric], r.run_id) for r in plotted]
+        best_index = next((i for i, r in enumerate(plotted) if r.run_id == best_id), None)
+        heading = f"{metric} by {param}"
+        body.append(f"<h2>{esc(heading)}</h2>")
+        body.append(scatter_chart(heading, points, param, best_index))
+        if best_index is not None:
+            body.append('<p class="muted">The highlighted dot is the best run for this metric.</p>')
+    rows = "".join(
+        f'<tr><td><a href="/run/{esc(r.run_id)}">{esc(r.run_id)}</a></td>'
+        f"<td>{esc(' '.join(f'{k}={_param_text(v)}' for k, v in params[r.run_id].items()))}</td>"
+        f'<td class="num">{fmt(metrics[r.run_id][metric])}</td></tr>'
+        for r in ordered
+    )
+    if rows:
+        body.append(
+            f"<h2>Runs by {esc(metric)}</h2><table><thead><tr><th>Run</th><th>Params</th>"
+            f"<th>{esc(metric)}</th></tr></thead><tbody>{rows}</tbody></table>"
+        )
+    return page(title, "".join(body))
+
+
 # -- routing --------------------------------------------------------------------------------
 
 
@@ -481,6 +669,9 @@ def route(store: Store, path: str, query: dict[str, list[str]]) -> Response:
         return Response(200, "text/html; charset=utf-8", render_index(store, query))
     if path.startswith("/run/"):
         return Response(200, "text/html; charset=utf-8", render_run(store, path[5:]))
+    if path.startswith("/experiment/"):
+        page_html = render_experiment(store, path[12:], query)
+        return Response(200, "text/html; charset=utf-8", page_html)
     if path == "/compare":
         return Response(200, "text/html; charset=utf-8", render_compare(store, query))
     if path == "/api/runs":

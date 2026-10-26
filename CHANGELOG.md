@@ -11,6 +11,10 @@ All notable changes to this project are documented here.
   a heatmap on the dashboard's run page.
 - k-fold cross-validation (`cv_folds`): per-fold metric series, mean and standard deviation,
   pooled confusion matrix, per-fold model seeds, stratified folds.
+- `sweep` command: runs every combination of a parameter grid, ranks them, reuses stored runs and
+  reports failed combinations without stopping (`--stop-on-error` to stop).
+- Dashboard experiment page (`/experiment/<id>`): one parameter plotted against one metric, with
+  the best run highlighted.
 
 ### Fixed
 - Reproducibility checks no longer compare per-fold metric series the re-run does not return.
