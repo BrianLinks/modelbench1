@@ -15,6 +15,7 @@ All notable changes to this project are documented here.
   reports failed combinations without stopping (`--stop-on-error` to stop).
 - Dashboard experiment page (`/experiment/<id>`): one parameter plotted against one metric, with
   the best run highlighted.
+- `knn_regressor`: mean target of the k nearest rows, with the classifier's tie and weighting rules.
 
 ### Fixed
 - Reproducibility checks no longer compare per-fold metric series the re-run does not return.

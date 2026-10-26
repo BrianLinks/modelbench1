@@ -577,6 +577,7 @@ class ErrorHandlingTests(CliTestCase):
                 "decision_tree  classification",
                 "gaussian_nb  classification",
                 "knn  classification",
+                "knn_regressor  regression",
                 "linear_regression  regression",
                 "logistic_regression  classification",
                 "majority  classification",

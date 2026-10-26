@@ -8,6 +8,7 @@ from ..errors import ModelError
 from .base import Classifier, Regressor
 from .decision_tree import DecisionTreeClassifier
 from .knn import KNNClassifier
+from .knn_regressor import KNNRegressor
 from .linear_regression import LinearRegression
 from .logistic_regression import LogisticRegression
 from .majority import MajorityClassifier
@@ -27,6 +28,7 @@ REGISTRY: dict[str, type[Classifier]] = {
 REGRESSORS: dict[str, type[Regressor]] = {
     MeanRegressor.name: MeanRegressor,
     LinearRegression.name: LinearRegression,
+    KNNRegressor.name: KNNRegressor,
 }
 
 
@@ -85,6 +87,7 @@ __all__ = [
     "DecisionTreeClassifier",
     "GaussianNB",
     "KNNClassifier",
+    "KNNRegressor",
     "LinearRegression",
     "LogisticRegression",
     "MajorityClassifier",

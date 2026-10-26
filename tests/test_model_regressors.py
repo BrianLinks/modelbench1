@@ -192,7 +192,7 @@ class LinearRegressionTests(unittest.TestCase):
 
 class RegistryTests(unittest.TestCase):
     def test_kinds_and_listings(self):
-        self.assertEqual(available_regressors(), ("linear_regression", "mean"))
+        self.assertEqual(available_regressors(), ("knn_regressor", "linear_regression", "mean"))
         self.assertEqual(set(all_models()), set(REGISTRY) | set(REGRESSORS))
         self.assertEqual(list(all_models()), sorted(all_models()))
         self.assertNotIn("mean", available_models())
