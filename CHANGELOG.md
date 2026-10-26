@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-26
+
 ### Added
 - Metrics: `balanced_accuracy`, `matthews_corrcoef`, `average_precision`, and micro and weighted
   precision, recall, and F1 as experiment metrics, with hand-computed tests.
@@ -19,6 +21,9 @@ All notable changes to this project are documented here.
 - `decision_tree_regressor`: CART regression tree with the classifier's deterministic split rules.
 - `bagged_trees`: bootstrap-aggregated decision trees with seeded, repeatable samples.
 - `perceptron`: multiclass averaged perceptron with a seeded visiting order and standardised features.
+- Seeded property tests over metrics, splits and folds, configs and grids, every model, and run
+  reproducibility.
+- ADR 6 on how cross-validation is recorded.
 
 ### Fixed
 - Reproducibility checks no longer compare per-fold metric series the re-run does not return.

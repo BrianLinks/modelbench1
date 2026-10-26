@@ -28,7 +28,9 @@ Each layer imports only from its own layer or the layers above it in this list.
    The dataset gets a version from a hash of its content.
 3. `Store.create_run` writes the config, dataset version, seed, and environment fingerprint, and
    the run starts as `running`.
-4. The model is fitted on the training rows and scored on the test rows. Predictions are hashed.
+4. The model is fitted on the training rows and scored on the test rows (or, with `cv_folds`, on
+   each of k folds in turn; see [ADR 6](adr/0006-cross-validation-records-folds-and-a-summary.md)).
+   Predictions are hashed.
 5. Metrics, tags (`n_train`, `n_test`, `predictions_sha256`, `model_seed`) and an optional
    predictions file are recorded and the run becomes `completed`. Any failure after step 3 marks
    the run `failed` with the error and re-raises. A killed process leaves `running`, which

@@ -2,7 +2,7 @@
 
 Local experiment tracking and model comparison, with no online ML platform and no paid API.
 
-**Status: early development.** Implemented so far:
+**Status: version 0.2.0.** What it contains:
 
 - `modelbench.metrics`: classification and regression metrics
 - `modelbench.ids`: strict dataset, experiment, run, and model identifiers
@@ -13,7 +13,8 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.store`: SQLite run store (datasets, runs, params, metric series, artifact metadata,
   tags) with migrations and a strict run lifecycle
 - `modelbench.models`: pure-Python classifiers behind one interface and a name registry:
-  `majority`, `stratified`, `knn`, `gaussian_nb`, `decision_tree`, `logistic_regression`
+  `majority`, `stratified`, `knn`, `gaussian_nb`, `decision_tree`, `logistic_regression`,
+  `bagged_trees`, `perceptron`
 - `modelbench.compare`: parameter diffs, metric deltas, ranking, and a paired bootstrap
 - `modelbench.run_comparison`: `compare_runs` over completed runs in the store
 - `modelbench.runner`: `run_experiment` splits a dataset, fits a model, scores it, and records
@@ -27,8 +28,8 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.dashboard`: a read-only local web dashboard (`modelbench serve`)
 - `modelbench.samples`: seeded synthetic datasets and a demo that fills a database with runs
 
-Regression models (`mean`, `linear_regression`, `knn_regressor`, `decision_tree_regressor`) run through the same runner, with `mae`, `mse`,
-`rmse` and `r2`.
+Regression models (`mean`, `linear_regression`, `knn_regressor`, `decision_tree_regressor`) run
+through the same runner, with `mae`, `mse`, `rmse` and `r2`.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit and
 [docs/adr](docs/adr) for the decisions behind them.
@@ -507,6 +508,11 @@ $env:PYTHONPATH = "src"
 python -m unittest discover -s tests
 python -m modelbench demo
 ```
+
+Besides the example-based tests, `tests/test_properties.py` checks invariants over generated
+inputs (metric ranges and symmetries, splits and folds partitioning the rows, every classifier's
+probabilities, reproducibility of runs). Each case comes from a fixed seed, so a failure
+repeats exactly and names its case.
 
 The whole suite passes on Windows, Linux, and Python 3.11 to 3.13. To unzip on Windows use
 `Expand-Archive modelbench.zip .` in PowerShell.
