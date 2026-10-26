@@ -7,6 +7,7 @@ from typing import Any
 from ..errors import ModelError
 from .base import Classifier, Regressor
 from .decision_tree import DecisionTreeClassifier
+from .decision_tree_regressor import DecisionTreeRegressor
 from .knn import KNNClassifier
 from .knn_regressor import KNNRegressor
 from .linear_regression import LinearRegression
@@ -29,6 +30,7 @@ REGRESSORS: dict[str, type[Regressor]] = {
     MeanRegressor.name: MeanRegressor,
     LinearRegression.name: LinearRegression,
     KNNRegressor.name: KNNRegressor,
+    DecisionTreeRegressor.name: DecisionTreeRegressor,
 }
 
 
@@ -85,6 +87,7 @@ __all__ = [
     "REGRESSORS",
     "Classifier",
     "DecisionTreeClassifier",
+    "DecisionTreeRegressor",
     "GaussianNB",
     "KNNClassifier",
     "KNNRegressor",

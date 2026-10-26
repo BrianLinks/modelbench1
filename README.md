@@ -27,7 +27,7 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.dashboard`: a read-only local web dashboard (`modelbench serve`)
 - `modelbench.samples`: seeded synthetic datasets and a demo that fills a database with runs
 
-Regression models (`mean`, `linear_regression`, `knn_regressor`) run through the same runner, with `mae`, `mse`,
+Regression models (`mean`, `linear_regression`, `knn_regressor`, `decision_tree_regressor`) run through the same runner, with `mae`, `mse`,
 `rmse` and `r2`.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit and
@@ -396,6 +396,7 @@ metrics `mae`, `mse`, `rmse` and `r2`. A model's kind decides which metrics are 
 |---|---|
 | `mean` | Predicts the training mean; the baseline for `r2` |
 | `knn_regressor` | Mean target of the `k` nearest rows (`k`, `metric`, `weights` as for `knn`); ties go to the earlier training row; an exact match overrides distance weighting. Scale features first |
+| `decision_tree_regressor` | CART regression tree minimising squared error: `max_depth` (default 5, `null` for unlimited), `min_samples_split`, `min_samples_leaf`. Same deterministic split rules as `decision_tree`; leaves predict the mean target; `describe()` prints the rules |
 | `linear_regression` | Closed-form least squares (Cholesky) on standardised features: `l2` (default 0). Constant columns get zero weight; collinear features with `l2=0` are an error that suggests `l2>0`. `coef_` and `intercept_` are in original units |
 
 ```python

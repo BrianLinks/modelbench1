@@ -575,6 +575,7 @@ class ErrorHandlingTests(CliTestCase):
             out.splitlines(),
             [
                 "decision_tree  classification",
+                "decision_tree_regressor  regression",
                 "gaussian_nb  classification",
                 "knn  classification",
                 "knn_regressor  regression",
