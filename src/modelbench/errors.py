@@ -70,3 +70,7 @@ class SweepError(ModelBenchError, ValueError):
 
 class PreprocessError(ModelBenchError, ValueError):
     """A preprocessing setting or a value it cannot handle."""
+
+
+class StatsError(ModelBenchError, ValueError):
+    """Inputs a statistical test cannot use."""
