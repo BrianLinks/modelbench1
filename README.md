@@ -46,10 +46,14 @@ table = Table(("x", "label"), tuple((str(i), "a" if i < 10 else "b") for i in ra
 config = ExperimentConfig(
     "demo", "knn", seed=1, dataset_id="demo-data", metrics=("accuracy", "f1"), params={"k": 3}
 )
-with Store("runs.db") as store:
-    result = run_experiment(store, config, table, "label")
-    result.metrics  # {'accuracy': 1.0, 'f1': 1.0}
+store = Store("runs.db")  # or `with Store("runs.db") as store:` to close it for you
+result = run_experiment(store, config, table, "label")
+result.metrics  # {'accuracy': 1.0, 'f1': 1.0}
+run_id = result.run_id  # 'run-000001'
 ```
+
+The Python blocks in this README run in order, in one session, and are executed by the test suite.
+The full Python interface is in [docs/API.md](docs/API.md).
 
 What it does and records:
 
@@ -63,7 +67,8 @@ What it does and records:
   recorded as an artifact.
 - Input is validated before any run is created, including metrics the data cannot support
   (ROC-AUC needs exactly two classes in both splits; log loss needs every test label seen in
-  training). Regression metrics are rejected because only classifiers exist so far.
+  training). Metrics must suit the model: `mae`, `mse`, `rmse` and `r2` for a regressor and the
+  classification metrics for a classifier; the wrong kind is rejected.
 - A failure after the run starts marks it `failed` with the error and re-raises. A hard
   interruption (Ctrl-C, a killed process) leaves it `running`.
 - `reuse_existing=True` returns an earlier completed run of the same experiment, settings, and
