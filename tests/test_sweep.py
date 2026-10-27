@@ -1,4 +1,5 @@
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,8 +8,18 @@ from modelbench.config import ExperimentConfig
 from modelbench.datasets import Table
 from modelbench.errors import ConfigError, SweepError
 from modelbench.runner import run_experiment
+from modelbench.seeding import rng_for
 from modelbench.store import Store
-from modelbench.sweep import load_sweep, parse_sweep, run_sweep
+from modelbench.sweep import (
+    MAX_TRIALS,
+    check_space,
+    load_search,
+    load_sweep,
+    parse_sweep,
+    run_search,
+    run_sweep,
+    sample_params,
+)
 
 ENV = {"python": "3.12.1", "lib:numpy": None}
 
@@ -199,6 +210,179 @@ class RunSweepTests(SweepTestCase):
             other, knn_config(params={"k": 3}), blobs(), "label", environment=ENV
         )
         self.assertEqual(result.entries[0].metrics, single.metrics)
+
+
+class SpaceTests(unittest.TestCase):
+    def test_a_valid_space_is_returned_in_name_order(self):
+        space = check_space(
+            {
+                "w": {"choice": ["a", 2]},
+                "k": {"int": [1, 5]},
+                "a": {"uniform": [0, 1]},
+                "l": {"log_uniform": [0.001, 10]},
+            }
+        )
+        self.assertEqual(list(space), ["a", "k", "l", "w"])
+        self.assertEqual(space["k"], ("int", (1, 5)))
+        self.assertEqual(space["a"], ("uniform", (0.0, 1.0)))
+
+    def test_invalid_spaces(self):
+        cases = {
+            "at least one": {},
+            "one of": {"k": {"int": [1, 2], "uniform": [0, 1]}},
+            "unknown kind": {"k": {"normal": [0, 1]}},
+            "needs \\[low, high\\]": {"k": {"int": [1]}},
+            "finite number": {"k": {"uniform": [0, float("inf")]}},
+            "got True": {"k": {"uniform": [True, 3]}},
+            "whole numbers": {"k": {"int": [1.5, 4]}},
+            "low <= high": {"k": {"int": [5, 1]}},
+            "low < high": {"k": {"uniform": [1, 1]}},
+            "low > 0": {"k": {"log_uniform": [0, 1]}},
+            "non-empty list": {"k": {"choice": []}},
+            "must be an object": {"k": [1, 2]},
+        }
+        for message, space in cases.items():
+            with self.subTest(message), self.assertRaisesRegex(SweepError, message):
+                check_space(space)
+        self.assertEqual(check_space({"k": {"int": [3, 3]}})["k"], ("int", (3, 3)))
+
+
+class SampleParamsTests(unittest.TestCase):
+    SPACE = check_space(
+        {
+            "k": {"int": [1, 4]},
+            "lr": {"log_uniform": [0.001, 10]},
+            "mix": {"uniform": [-1, 1]},
+            "w": {"choice": ["uniform", "distance"]},
+        }
+    )
+
+    def test_values_come_from_the_trials_own_generator_in_name_order(self):
+        for trial in range(5):
+            rng = rng_for(9, "search", trial)
+            expected = {"k": rng.randint(1, 4)}
+            expected["lr"] = float(f"{math.exp(rng.uniform(math.log(0.001), math.log(10))):.6g}")
+            expected["mix"] = float(f"{rng.uniform(-1, 1):.6g}")
+            expected["w"] = rng.choice(["uniform", "distance"])
+            self.assertEqual(sample_params(self.SPACE, 9, trial), expected, trial)
+
+    def test_a_trial_depends_only_on_the_seed_and_its_number(self):
+        self.assertEqual(sample_params(self.SPACE, 9, 3), sample_params(self.SPACE, 9, 3))
+        self.assertNotEqual(sample_params(self.SPACE, 9, 3), sample_params(self.SPACE, 10, 3))
+        self.assertNotEqual(sample_params(self.SPACE, 9, 3), sample_params(self.SPACE, 9, 4))
+
+    def test_draws_stay_in_range_and_reach_both_ends_of_an_int_range(self):
+        ks, lrs = set(), []
+        for trial in range(300):
+            drawn = sample_params(self.SPACE, 1, trial)
+            ks.add(drawn["k"])
+            lrs.append(drawn["lr"])
+            self.assertTrue(-1 <= drawn["mix"] <= 1)
+            self.assertIn(drawn["w"], ("uniform", "distance"))
+            self.assertIsInstance(drawn["k"], int)
+        self.assertEqual(ks, {1, 2, 3, 4})
+        self.assertTrue(all(0.001 <= v <= 10 for v in lrs))
+        below = sum(v < 0.1 for v in lrs)  # log-uniform: half of the log range is below 0.1
+        self.assertTrue(100 < below < 200, below)
+
+    def test_choices_keep_their_json_type(self):
+        space = check_space({"c": {"choice": [None, True, 3, "x", [1, 2]]}})
+        seen = {repr(sample_params(space, 2, t)["c"]) for t in range(200)}
+        self.assertEqual(seen, {"None", "True", "3", "'x'", "[1, 2]"})
+
+
+class RunSearchTests(SweepTestCase):
+    SPACE = {"k": {"int": [1, 9]}, "weights": {"choice": ["uniform", "distance"]}}
+
+    def test_each_trial_is_a_run_with_the_drawn_parameters(self):
+        result = self.sweep_search(knn_config(seed=4), 6)
+        checked = check_space(self.SPACE)
+        expected = []
+        for trial in range(6):
+            drawn = sample_params(checked, 4, trial)
+            if drawn not in expected:
+                expected.append(drawn)
+        self.assertEqual([e.params for e in result.entries], expected)
+        self.assertEqual(len(self.store.list_runs()), len(expected))
+        self.assertTrue(all(e.error is None for e in result.entries))
+
+    def sweep_search(self, config, trials, space=None, **kwargs):
+        kwargs.setdefault("environment", ENV)
+        return run_search(
+            self.store, config, space or self.SPACE, trials, blobs(), "label", **kwargs
+        )
+
+    def test_repeated_draws_are_skipped(self):
+        result = self.sweep_search(knn_config(), 30, {"k": {"int": [1, 2]}})
+        self.assertEqual(sorted(e.params["k"] for e in result.entries), [1, 2])
+
+    def test_more_trials_extend_the_earlier_ones(self):
+        few = self.sweep_search(knn_config(seed=8), 4)
+        more = self.sweep_search(knn_config(seed=8), 8)
+        self.assertEqual([e.params for e in more.entries[: len(few.entries)]],
+                         [e.params for e in few.entries])  # fmt: skip
+        self.assertTrue(all(e.reused for e in more.entries[: len(few.entries)]))
+
+    def test_base_parameters_are_kept_and_clashes_rejected(self):
+        result = self.sweep_search(
+            knn_config(params={"metric": "manhattan"}), 3, {"k": {"int": [1, 5]}}
+        )
+        self.assertTrue(all(e.params["metric"] == "manhattan" for e in result.entries))
+        with self.assertRaisesRegex(SweepError, "both the space and the config"):
+            self.sweep_search(knn_config(params={"k": 3}), 3)
+
+    def test_a_bad_draw_fails_alone(self):
+        result = self.sweep_search(knn_config(), 5, {"k": {"int": [100, 101]}})
+        self.assertTrue(all(e.error is not None for e in result.entries))
+        self.assertIsNone(result.best())
+
+    def test_trial_counts_are_checked(self):
+        for bad in (0, -1, MAX_TRIALS + 1, True, 2.5):
+            with self.subTest(trials=bad), self.assertRaisesRegex(SweepError, "trials"):
+                self.sweep_search(knn_config(), bad)
+        self.assertEqual(self.store.list_runs(), [])
+
+    def test_ranking_matches_the_runs(self):
+        result = self.sweep_search(knn_config(), 5, rank_by="f1")
+        self.assertEqual(result.rank_metric, "f1")
+        values = [r.value for r in result.ranking.ranked]
+        self.assertEqual(values, sorted(values, reverse=True))
+
+
+class LoadSearchTests(unittest.TestCase):
+    def doc(self, **overrides):
+        document = {
+            "config": ParseSweepTests().good()["config"],
+            "space": {"k": {"int": [1, 5]}},
+            "trials": 5,
+        }
+        document.update(overrides)
+        return document
+
+    def load(self, document):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "s.json"
+            path.write_text(json.dumps(document))
+            return load_search(path)
+
+    def test_a_valid_file(self):
+        config, space, trials = self.load(self.doc())
+        self.assertEqual((config.model, trials), ("knn", 5))
+        self.assertEqual(space, {"k": {"int": [1, 5]}})
+
+    def test_malformed_files(self):
+        cases = {
+            "must be a JSON object": [1],
+            "unknown key": self.doc(extra=1),
+            "needs": {"config": self.doc()["config"]},
+            "trials": self.doc(trials=0),
+            "unknown kind": self.doc(space={"k": {"bogus": [1]}}),
+        }
+        for message, document in cases.items():
+            with self.subTest(message), self.assertRaisesRegex(SweepError, message):
+                self.load(document)
+        with self.assertRaisesRegex(SweepError, "cannot read search file"):
+            load_search("/nonexistent/search.json")
 
 
 class ParseSweepTests(unittest.TestCase):
