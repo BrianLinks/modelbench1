@@ -5,6 +5,8 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- `search` command and `run_search`: seeded random search over `int`, `uniform`, `log_uniform`
+  and `choice` parameters, ranked and reported like a sweep.
 - `report` command and `report` module: a standalone, script-free HTML or Markdown report on
   one experiment's runs, deterministic for the same database contents.
 - `learning-curve` command and `learning_curve`: train and test score at growing fractions of

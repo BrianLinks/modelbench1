@@ -983,6 +983,58 @@ class LearningCurveCommandTests(CliTestCase):
         self.assertIn("not one of the config's metrics", err)
 
 
+class SearchCommandTests(CliTestCase):
+    def search_file(self, space=None, trials=5, **config):
+        document = {
+            "config": json.loads(config_text(params={}, **config)),
+            "space": space
+            or {"k": {"int": [1, 9]}, "weights": {"choice": ["uniform", "distance"]}},
+            "trials": trials,
+        }
+        path = self.dir / "search.json"
+        path.write_text(json.dumps(document))
+        return path
+
+    def search(self, *extra, **kwargs):
+        return self.cli(
+            "search", self.search_file(**kwargs), "--data", self.data, "--label", "label", *extra
+        )
+
+    def test_text_output_lists_the_trials(self):
+        code, out, err = self.search()
+        self.assertEqual((code, err), (0, ""))
+        lines = out.splitlines()
+        self.assertTrue(lines[0].startswith("search exp-a: "), lines[0])
+        self.assertTrue(lines[0].endswith(" trials, ranked by accuracy (higher is better)"))
+        self.assertTrue(lines[-1].startswith("best run-"))
+        self.assertEqual(
+            len(json.loads(self.cli("list", "--json")[1])), int(lines[0].split(": ")[1].split()[0])
+        )
+
+    def test_the_same_file_draws_the_same_runs(self):
+        first = json.loads(self.search("--json")[1])
+        again = json.loads(self.search("--json")[1])
+        self.assertEqual(
+            [e["params"] for e in first["entries"]], [e["params"] for e in again["entries"]]
+        )
+        self.assertTrue(all(e["reused"] for e in again["entries"]))
+
+    def test_failures_set_exit_code_one(self):
+        code, out, _ = self.search(space={"k": {"int": [100, 101]}})
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines()[-1], "no run succeeded")
+
+    def test_bad_files_are_errors(self):
+        code, _, err = self.cli(
+            "search", self.dir / "nope.json", "--data", self.data, "--label", "label"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("cannot read search file", err)
+        code, _, err = self.search(trials=0)
+        self.assertEqual(code, 2)
+        self.assertIn('"trials" must be a whole number', err)
+
+
 class ReportCommandTests(CliTestCase):
     def setUp(self):
         super().setUp()

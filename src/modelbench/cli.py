@@ -33,7 +33,7 @@ from .run_comparison import RunComparison, compare_runs
 from .runner import run_experiment
 from .samples import available_samples, generate, run_demo, table_to_csv
 from .store import STATUSES, Store
-from .sweep import SweepResult, load_sweep, run_sweep
+from .sweep import SweepResult, load_search, load_sweep, run_search, run_sweep
 
 DEFAULT_DB = "modelbench.db"
 
@@ -146,10 +146,11 @@ def _params_text(params: dict[str, Any]) -> str:
     return " ".join(f"{name}={json.dumps(value)}" for name, value in params.items())
 
 
-def _render_sweep(result: SweepResult, metrics: Sequence[str]) -> str:
+def _render_sweep(result: SweepResult, metrics: Sequence[str], noun: str = "sweep") -> str:
     direction = "higher" if higher_is_better(result.rank_metric) else "lower"
     reused = sum(1 for e in result.entries if e.reused)
-    header = f"sweep {result.experiment_id}: {len(result.entries)} combinations"
+    unit = "combinations" if noun == "sweep" else "trials"
+    header = f"{noun} {result.experiment_id}: {len(result.entries)} {unit}"
     if reused:
         header += f" ({reused} reused)"
     lines = [f"{header}, ranked by {result.rank_metric} ({direction} is better)", ""]
@@ -185,8 +186,34 @@ def cmd_sweep(args: argparse.Namespace) -> int:
             rank_by=args.rank_by,
             stop_on_error=args.stop_on_error,
         )
+    return _print_sweep(result, config.metrics, args.json)
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    config, space, trials = load_search(args.search)
+    table = read_csv(args.data)
+    with Store(args.db) as store:
+        result = run_search(
+            store,
+            config,
+            space,
+            trials,
+            table,
+            args.label,
+            feature_columns=_split_list(args.features, "--features"),
+            artifact_dir=args.artifact_dir,
+            reuse_existing=not args.no_reuse,
+            rank_by=args.rank_by,
+            stop_on_error=args.stop_on_error,
+        )
+    return _print_sweep(result, config.metrics, args.json, "search")
+
+
+def _print_sweep(
+    result: SweepResult, metrics: Sequence[str], as_json: bool, noun: str = "sweep"
+) -> int:
     ranks = {r.run_id: r.rank for r in result.ranking.ranked}
-    if args.json:
+    if as_json:
         best = result.best()
         print(
             _json(
@@ -209,7 +236,7 @@ def cmd_sweep(args: argparse.Namespace) -> int:
             )
         )
     else:
-        print(_render_sweep(result, config.metrics))
+        print(_render_sweep(result, metrics, noun))
     return 1 if result.failed else 0
 
 
@@ -620,6 +647,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--artifact-dir", help="also write each run's predictions here")
     p.add_argument("--rank-by", help="metric to rank by (default: the config's first metric)")
     p.add_argument("--no-reuse", action="store_true", help="re-run combinations already stored")
+    p.add_argument("--stop-on-error", action="store_true", help="stop at the first failure")
+
+    p = add("search", cmd_search, "random search: run seeded parameter draws and rank them", True)
+    p.add_argument("search", help='search file: {"config": {...}, "space": {...}, "trials": N}')
+    p.add_argument("--data", required=True, help="CSV file")
+    p.add_argument("--label", required=True, help="label column")
+    p.add_argument("--features", help="comma-separated feature columns (default: all others)")
+    p.add_argument("--artifact-dir", help="also write each run's predictions here")
+    p.add_argument("--rank-by", help="metric to rank by (default: the config's first metric)")
+    p.add_argument("--no-reuse", action="store_true", help="re-run draws already stored")
     p.add_argument("--stop-on-error", action="store_true", help="stop at the first failure")
 
     p = add("list", cmd_list, "list runs, newest first", True)

@@ -120,6 +120,7 @@ modelbench [--db runs.db] <command> ...
 | `importance RUN --data F.csv --label COL` | permutation feature importance for a stored run (`--metric`, `--repeats`, `--seed`) |
 | `report EXPERIMENT` | a standalone report on one experiment's completed runs: HTML with charts, or `--format md` (`--metric`, `-o FILE`) |
 | `learning-curve CONFIG.json --data F.csv --label COL` | train and test score at growing training-set sizes (`--fractions`, `--metric`) |
+| `search SEARCH.json --data F.csv --label COL` | seeded random search over parameter ranges, ranked like `sweep` (same options) |
 | `list` | runs, newest first (`--experiment`, `--status`, `--limit`) |
 | `show RUN` | one run in full: config, metrics, tags, files, notes |
 | `compare RUN RUN ...` | the first run is the baseline (`--metrics a,b`) |
@@ -134,7 +135,7 @@ modelbench [--db runs.db] <command> ...
 | `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version |
 | `models` | list the available models |
 
-`run`, `sweep`, `importance`, `learning-curve`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
+`run`, `sweep`, `search`, `importance`, `learning-curve`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
 defaults to `modelbench.db`; only `run` creates it, and every other command reports a missing
 database instead of making an empty one. A config file is the JSON form of an experiment:
 
@@ -198,6 +199,25 @@ such as `k` larger than the training set, is listed with its error and the sweep
 (`--stop-on-error` stops instead) and the exit code is 1. Combinations already stored with
 identical settings on the same data are reused, so a sweep can be re-run or extended cheaply
 (`--no-reuse` repeats them). A grid key must not also be in the config's `params`.
+
+### Random search
+
+When a grid would be too large, `modelbench search` draws parameter sets at random:
+
+```json
+{"config": {"experiment_id": "knn-search", "model": "knn", "seed": 5, "dataset_id": "blobs",
+            "metrics": ["accuracy"], "params": {}},
+ "space": {"k": {"int": [1, 15]}, "weights": {"choice": ["uniform", "distance"]}},
+ "trials": 20}
+```
+
+Each parameter is one of `{"int": [lo, hi]}` (both ends included), `{"uniform": [lo, hi]}`,
+`{"log_uniform": [lo, hi]}` (for scales such as `l2`; `lo` must be above 0) or
+`{"choice": [values]}`. Trial *n* is drawn from the config's `seed` and *n* alone, so the same
+file always gives the same runs, and raising `trials` only adds draws after the earlier ones
+(which are reused). A draw that repeats an earlier one is skipped, so a small space can give
+fewer runs than `trials`. Everything else works as for `sweep`: ranking, `--rank-by`, failed
+draws listed with their errors, exit code 1 if any failed.
 
 The dashboard's experiment page (`/experiment/<id>`, linked from the run list and run pages)
 plots one parameter against one metric for the experiment's completed runs and highlights the
