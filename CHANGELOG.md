@@ -5,6 +5,10 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- Release workflow: pushing a `vX.Y.Z` tag runs the checks and publishes a GitHub release with
+  the changelog section as notes; `scripts/release_notes.py` refuses a tag that does not match the
+  declared version.
+- CI tests on Windows and Python 3.10 to 3.13.
 - `search` command and `run_search`: seeded random search over `int`, `uniform`, `log_uniform`
   and `choice` parameters, ranked and reported like a sweep.
 - `report` command and `report` module: a standalone, script-free HTML or Markdown report on
