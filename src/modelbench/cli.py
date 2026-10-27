@@ -25,6 +25,7 @@ from .errors import CliError, MetricError, ModelBenchError
 from .export import export_json, export_metrics_csv, export_runs, write_text_atomic
 from .importance import ImportanceResult, permutation_importance
 from .importer import import_runs_json, parse_document, parse_runs, read_import_file
+from .learning_curve import DEFAULT_FRACTIONS, LearningCurve, learning_curve
 from .models import all_models, model_kind
 from .reproducibility import check_reproducibility, recover_stale_runs
 from .run_comparison import RunComparison, compare_runs
@@ -386,6 +387,64 @@ def cmd_importance(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_fractions(text: str | None) -> tuple[float, ...]:
+    if text is None:
+        return DEFAULT_FRACTIONS
+    parts = _split_list(text, "--fractions") or []
+    try:
+        return tuple(float(part) for part in parts)
+    except ValueError:
+        raise CliError("--fractions must be comma-separated numbers such as 0.25,0.5,1") from None
+
+
+def _render_curve(curve: LearningCurve, name: str) -> str:
+    split = "1 split" if curve.folds == 1 else f"{curve.folds} folds"
+    header = ["fraction", "n_train", "train", "test"] + (["test_std"] if curve.folds > 1 else [])
+    rows = [header]
+    for point in curve.points:
+        row = [f"{point.fraction:g}", str(point.n_train), _fmt(point.train_score)]
+        row.append(_fmt(point.test_score))
+        if curve.folds > 1:
+            row.append(_fmt(point.test_std))
+        rows.append(row)
+    return f"learning curve for {_safe(name)}: {curve.metric}, {split}\n\n" + _table(rows)
+
+
+def cmd_learning_curve(args: argparse.Namespace) -> int:
+    config = ExperimentConfig.from_file(args.config)
+    curve = learning_curve(
+        config,
+        read_csv(args.data),
+        args.label,
+        fractions=_parse_fractions(args.fractions),
+        metric=args.metric,
+        feature_columns=_split_list(args.features, "--features"),
+    )
+    if args.json:
+        print(
+            _json(
+                {
+                    "experiment_id": config.experiment_id,
+                    "metric": curve.metric,
+                    "folds": curve.folds,
+                    "points": [
+                        {
+                            "fraction": p.fraction,
+                            "n_train": p.n_train,
+                            "train_score": p.train_score,
+                            "test_score": p.test_score,
+                            "test_std": p.test_std,
+                        }
+                        for p in curve.points
+                    ],
+                }
+            )
+        )
+    else:
+        print(_render_curve(curve, config.experiment_id))
+    return 0
+
+
 def cmd_note(args: argparse.Namespace) -> int:
     with _open_existing(args.db) as store:
         store.add_note(args.run_id, args.text)
@@ -577,6 +636,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--metric", help="metric to measure (default: the run's first)")
     p.add_argument("--repeats", type=int, default=5, help="shuffles per feature (default 5)")
     p.add_argument("--seed", type=int, help="shuffle seed (default: the run's seed)")
+
+    p = add(
+        "learning-curve", cmd_learning_curve, "score a config at growing training-set sizes", True
+    )
+    p.add_argument("config", help="experiment config (JSON)")
+    p.add_argument("--data", required=True, help="CSV file")
+    p.add_argument("--label", required=True, help="label column")
+    p.add_argument("--features", help="comma-separated feature columns (default: all others)")
+    p.add_argument("--metric", help="metric to score (default: the config's first)")
+    p.add_argument("--fractions", help="comma-separated, increasing (default 0.2,0.4,0.6,0.8,1)")
 
     p = add("note", cmd_note, "attach a note to a run")
     p.add_argument("run_id")

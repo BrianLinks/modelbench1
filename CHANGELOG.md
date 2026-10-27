@@ -5,6 +5,8 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- `learning-curve` command and `learning_curve`: train and test score at growing fractions of
+  the training rows, per fold when cross-validating.
 - `importance` command and `permutation_importance`: seeded permutation feature importance for a
   stored run, rebuilt with the new `runner.refit` and checked against the run's predictions hash.
 - Preprocessing (`preprocess` in the config): one-hot categories, mean/median/constant imputation

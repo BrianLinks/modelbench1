@@ -137,6 +137,25 @@ assert {f.feature for f in importance.features} == {"x1", "x2"}
 assert importance.features[0].importance > 0  # shuffling the most important feature hurts
 ```
 
+## Learning curves
+
+`learning_curve` fits a config on growing fractions of its training rows and scores each fit on
+the rows it learned and on the test rows. Nothing is stored.
+
+```python
+from modelbench.learning_curve import learning_curve
+
+curve = learning_curve(
+    ExperimentConfig("docs-curve", "knn", 7, "clusters", ("accuracy",), {"k": 1}),
+    table,
+    "label",
+    fractions=(0.5, 1.0),
+)
+assert [p.n_train for p in curve.points] == [16, 32]
+assert [p.train_score for p in curve.points] == [1.0, 1.0]  # a 1-NN knows its own rows
+assert curve.points[-1].test_score == 1.0
+```
+
 ## Reading the store
 
 ```python

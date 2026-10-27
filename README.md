@@ -118,6 +118,7 @@ modelbench [--db runs.db] <command> ...
 | `run CONFIG.json --data F.csv --label COL` | run an experiment (`--features a,b`, `--artifact-dir D`, `--reuse`) |
 | `sweep SWEEP.json --data F.csv --label COL` | run every combination of a parameter grid and rank them (`--rank-by`, `--no-reuse`, `--stop-on-error`) |
 | `importance RUN --data F.csv --label COL` | permutation feature importance for a stored run (`--metric`, `--repeats`, `--seed`) |
+| `learning-curve CONFIG.json --data F.csv --label COL` | train and test score at growing training-set sizes (`--fractions`, `--metric`) |
 | `list` | runs, newest first (`--experiment`, `--status`, `--limit`) |
 | `show RUN` | one run in full: config, metrics, tags, files, notes |
 | `compare RUN RUN ...` | the first run is the baseline (`--metrics a,b`) |
@@ -132,7 +133,7 @@ modelbench [--db runs.db] <command> ...
 | `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version |
 | `models` | list the available models |
 
-`run`, `sweep`, `importance`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
+`run`, `sweep`, `importance`, `learning-curve`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
 defaults to `modelbench.db`; only `run` creates it, and every other command reports a missing
 database instead of making an empty one. A config file is the JSON form of an experiment:
 
@@ -221,6 +222,28 @@ CSV and `--features` the run used; anything else is refused instead of describin
 model. Features are the model's inputs after preprocessing, so one-hot columns count one by
 one, and a cross-validated run whose folds have different one-hot columns cannot be analysed.
 The shuffles are seeded (`--seed`, default the run's seed), so the answer repeats.
+
+## Learning curves
+
+```
+$ modelbench learning-curve tree.json --data moons.csv --label label
+learning curve for tree: accuracy, 1 split
+
+fraction  n_train  train   test
+0.2       32       1.0000  0.7500
+0.4       64       1.0000  0.8500
+0.6       96       1.0000  0.8750
+0.8       128      1.0000  0.7500
+1         160      1.0000  0.8500
+```
+
+The model is fitted on the first `fraction` of a seeded shuffle of the training rows (each
+smaller set is inside the next) and scored on the rows it learned and on the untouched test
+rows. A deep tree scores 1.0 on its own rows at every size, so the gap to the test column is the
+overfitting. With `cv_folds` the curve is averaged over the folds and a `test_std` column shows
+the spread. Nothing is stored, and preprocessing is fitted once on each fold's whole training
+set. Fractions must be increasing, in (0, 1], at most 20 of them. A model that cannot train on a
+small subset (a `k` larger than the rows) stops the curve with the size at fault.
 
 ## Sample data and demo
 

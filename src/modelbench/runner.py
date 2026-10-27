@@ -87,11 +87,11 @@ def run_experiment(
     """
     kind = model_kind(config.model)
     _check_metrics(config.metrics, kind)
-    folds = _load_folds(config, table, label_column, feature_columns)
+    folds = load_folds(config, table, label_column, feature_columns)
     dataset = make_version(config.dataset_id, table, label_column)
     for fold in folds:  # every fold must be scoreable before a run exists
         _check_split_for_metrics(config.metrics, fold.train_y, fold.test_y)  # no-op for regression
-    _build_model(config)  # reject unknown models and parameters before a run exists
+    build_model(config)  # reject unknown models and parameters before a run exists
 
     if reuse_existing:
         earlier = _find_reusable(store, config, dataset)
@@ -131,7 +131,7 @@ class Fold:
         return len(self.feature_names)
 
 
-def _load_folds(
+def load_folds(
     config: ExperimentConfig,
     table: Table,
     label_column: str,
@@ -171,8 +171,8 @@ def refit(
     """
     cv = config.cv_folds is not None
     fitted: list[FittedFold] = []
-    for number, fold in enumerate(_load_folds(config, table, label_column, feature_columns)):
-        model, _ = _build_model(config, number if cv else None)
+    for number, fold in enumerate(load_folds(config, table, label_column, feature_columns)):
+        model, _ = build_model(config, number if cv else None)
         model.fit(fold.train_X, fold.train_y)
         fitted.append(FittedFold(fold, model))
     return fitted
@@ -255,7 +255,7 @@ def _execute(
     model: Classifier | Regressor | None = None
     model_seed: int | None = None
     for number, fold in enumerate(folds):
-        model, seed = _build_model(config, number if cv else None)
+        model, seed = build_model(config, number if cv else None)
         model_seed = seed if not cv else None
         evaluations.append(_evaluate(config, model, fold))
     assert model is not None  # a run always has at least one split
@@ -410,7 +410,7 @@ def _check_split_for_metrics(
             raise RunnerError(f"log_loss needs every test label in training; unseen: {unseen}")
 
 
-def _build_model(
+def build_model(
     config: ExperimentConfig, fold: int | None = None
 ) -> tuple[Classifier | Regressor, int | None]:
     params = dict(config.params)

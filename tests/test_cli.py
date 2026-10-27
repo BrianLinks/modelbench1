@@ -928,5 +928,60 @@ class ImportanceCommandTests(CliTestCase):
         self.assertIn("not the dataset version", err)
 
 
+class LearningCurveCommandTests(CliTestCase):
+    def curve(self, *extra, **config):
+        path = self.dir / "lc.json"
+        path.write_text(config_text(params={"k": 1}, stratify=True, **config))
+        return self.cli("learning-curve", path, "--data", self.data, "--label", "label", *extra)
+
+    def test_text_output(self):
+        code, out, err = self.curve("--fractions", "0.25,0.5,1")
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(
+            out.splitlines(),
+            [
+                "learning curve for exp-a: accuracy, 1 split",
+                "",
+                "fraction  n_train  train   test",
+                "0.25      8        1.0000  1.0000",
+                "0.5       16       1.0000  1.0000",
+                "1         32       1.0000  1.0000",
+            ],
+        )
+
+    def test_cross_validation_adds_the_spread_column(self):
+        code, out, _ = self.curve("--fractions", "1", cv_folds=4)
+        self.assertEqual(code, 0)
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "learning curve for exp-a: accuracy, 4 folds")
+        self.assertEqual(lines[2].split(), ["fraction", "n_train", "train", "test", "test_std"])
+        self.assertEqual(lines[3].split(), ["1", "30", "1.0000", "1.0000", "0.0000"])
+
+    def test_two_folds_are_enough_for_the_spread_column(self):
+        _, out, _ = self.curve("--fractions", "1", cv_folds=2)
+        self.assertIn("test_std", out.splitlines()[2])
+        self.assertIn("2 folds", out.splitlines()[0])
+
+    def test_json_output_and_metric_choice(self):
+        code, out, _ = self.curve(
+            "--json", "--metric", "f1", "--fractions", "0.5,1", metrics=["accuracy", "f1"]
+        )
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual((data["metric"], data["folds"]), ("f1", 1))
+        self.assertEqual([p["fraction"] for p in data["points"]], [0.5, 1.0])
+        self.assertEqual(data["points"][1]["n_train"], 32)
+
+    def test_errors(self):
+        for fractions, message in (("abc", "comma-separated numbers"), ("0.5,0.5", "increasing"),
+                                   ("1.5", "(0, 1]"), ("0.5,,1", "no empty")):  # fmt: skip
+            code, _, err = self.curve("--fractions", fractions)
+            self.assertEqual(code, 2, fractions)
+            self.assertIn(message, err)
+        code, _, err = self.curve("--metric", "mcc")
+        self.assertEqual(code, 2)
+        self.assertIn("not one of the config's metrics", err)
+
+
 if __name__ == "__main__":
     unittest.main()
