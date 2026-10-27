@@ -87,22 +87,10 @@ def run_experiment(
     """
     kind = model_kind(config.model)
     _check_metrics(config.metrics, kind)
-    if kind == "regression" and config.stratify:
-        raise RunnerError("stratify applies to classification; regression has no classes")
-    names, X, cells, y = _features_and_labels(
-        table, label_column, feature_columns, kind == "regression", config
-    )
+    folds = _load_folds(config, table, label_column, feature_columns)
     dataset = make_version(config.dataset_id, table, label_column)
-    labels_for_split = y if config.stratify else None
-    if config.cv_folds is None:
-        splits = [split_indices(len(table), config.test_fraction, config.seed, labels_for_split)]
-    else:
-        splits = kfold_indices(len(table), config.cv_folds, config.seed, labels_for_split)
-    for train_idx, test_idx in splits:  # every fold must be scoreable before a run exists
-        _check_split_for_metrics(
-            config.metrics, [y[i] for i in train_idx], [y[i] for i in test_idx]
-        )  # no-op for regression
-    folds = _prepare_folds(config, names, X, cells, y, splits)  # preprocessing errors surface now
+    for fold in folds:  # every fold must be scoreable before a run exists
+        _check_split_for_metrics(config.metrics, fold.train_y, fold.test_y)  # no-op for regression
     _build_model(config)  # reject unknown models and parameters before a run exists
 
     if reuse_existing:
@@ -128,13 +116,66 @@ class _Evaluation:
 
 
 @dataclass(frozen=True)
-class _Fold:
+class Fold:
+    """One train/test split with its feature matrices (after preprocessing)."""
+
     train_X: list[list[float]]
     train_y: list[Any]
     test_X: list[list[float]]
     test_y: list[Any]
-    test_idx: list[int]
-    n_features: int
+    test_idx: list[int]  # row numbers in the table
+    feature_names: list[str]
+
+    @property
+    def n_features(self) -> int:
+        return len(self.feature_names)
+
+
+def _load_folds(
+    config: ExperimentConfig,
+    table: Table,
+    label_column: str,
+    feature_columns: Sequence[str] | None,
+) -> list[Fold]:
+    """Parse the table and build every split's matrices. Nothing is recorded anywhere."""
+    kind = model_kind(config.model)
+    if kind == "regression" and config.stratify:
+        raise RunnerError("stratify applies to classification; regression has no classes")
+    names, X, cells, y = _features_and_labels(
+        table, label_column, feature_columns, kind == "regression", config
+    )
+    labels_for_split = y if config.stratify else None
+    if config.cv_folds is None:
+        splits = [split_indices(len(table), config.test_fraction, config.seed, labels_for_split)]
+    else:
+        splits = kfold_indices(len(table), config.cv_folds, config.seed, labels_for_split)
+    return _prepare_folds(config, names, X, cells, y, splits)
+
+
+@dataclass(frozen=True)
+class FittedFold:
+    fold: Fold
+    model: Classifier | Regressor
+
+
+def refit(
+    config: ExperimentConfig,
+    table: Table,
+    label_column: str,
+    feature_columns: Sequence[str] | None = None,
+) -> list[FittedFold]:
+    """Rebuild and fit the model of every split of `config`, exactly as `run_experiment` does.
+
+    Splits, preprocessing, and model seeds are deterministic, so for the data a run used this
+    gives the models that produced it. Nothing is stored.
+    """
+    cv = config.cv_folds is not None
+    fitted: list[FittedFold] = []
+    for number, fold in enumerate(_load_folds(config, table, label_column, feature_columns)):
+        model, _ = _build_model(config, number if cv else None)
+        model.fit(fold.train_X, fold.train_y)
+        fitted.append(FittedFold(fold, model))
+    return fitted
 
 
 def _prepare_folds(
@@ -144,9 +185,9 @@ def _prepare_folds(
     cells: list[list[Cell]] | None,
     y: list[Label],
     splits: list[tuple[list[int], list[int]]],
-) -> list[_Fold]:
+) -> list[Fold]:
     """The feature matrices of every split. Preprocessing is fitted on each training set only."""
-    folds: list[_Fold] = []
+    folds: list[Fold] = []
     for train_idx, test_idx in splits:
         if config.preprocess is not None and cells is not None:
             train_X, test_X, feature_names = fit_transform_split(
@@ -156,27 +197,44 @@ def _prepare_folds(
             train_X, test_X = [X[i] for i in train_idx], [X[i] for i in test_idx]
             feature_names = list(names)
         folds.append(
-            _Fold(
+            Fold(
                 train_X,
                 [y[i] for i in train_idx],
                 test_X,
                 [y[i] for i in test_idx],
                 test_idx,
-                len(feature_names),
+                feature_names,
             )
         )
     return folds
 
 
-def _evaluate(config: ExperimentConfig, model: Classifier | Regressor, fold: _Fold) -> _Evaluation:
+def _evaluate(config: ExperimentConfig, model: Classifier | Regressor, fold: Fold) -> _Evaluation:
     model.fit(fold.train_X, fold.train_y)
     y_true: list[Any] = list(fold.test_y)
     y_pred: list[Any] = list(model.predict(fold.test_X))
     if isinstance(model, Regressor):
-        scores = _score_regression(config.metrics, y_true, y_pred)
+        scores = score_regressor(config.metrics, y_true, y_pred)
     else:
-        scores = _score(config.metrics, model, fold.test_X, y_true, y_pred)
+        scores = score_classifier(config.metrics, model, fold.test_X, y_true, y_pred)
     return _Evaluation(scores, fold.test_idx, y_true, y_pred)
+
+
+def predictions_payload(
+    cv: bool, parts: Sequence[tuple[Sequence[int], Sequence[Any], Sequence[Any]]]
+) -> bytes:
+    """The bytes whose SHA-256 is a run's `predictions_sha256`: one `(test row numbers, true
+    values, predictions)` triple per split, in split order."""
+    if cv:
+        data: dict[str, Any] = {
+            "folds": [
+                {"test_indices": list(i), "y_true": list(t), "y_pred": list(p)} for i, t, p in parts
+            ]
+        }
+    else:
+        i, t, p = parts[0]
+        data = {"test_indices": list(i), "y_true": list(t), "y_pred": list(p)}
+    return json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def _mean_and_std(values: Sequence[float]) -> tuple[float, float]:
@@ -189,7 +247,7 @@ def _execute(
     store: Store,
     run_id: str,
     config: ExperimentConfig,
-    folds: list[_Fold],
+    folds: list[Fold],
     artifact_dir: str | Path | None,
 ) -> RunResult:
     cv = config.cv_folds is not None
@@ -204,17 +262,7 @@ def _execute(
 
     y_true: list[Any] = [v for e in evaluations for v in e.y_true]
     y_pred: list[Any] = [v for e in evaluations for v in e.y_pred]
-    if cv:
-        payload_data: dict[str, Any] = {
-            "folds": [
-                {"test_indices": e.test_idx, "y_true": e.y_true, "y_pred": e.y_pred}
-                for e in evaluations
-            ]
-        }
-    else:
-        only = evaluations[0]
-        payload_data = {"test_indices": only.test_idx, "y_true": only.y_true, "y_pred": only.y_pred}
-    payload = json.dumps(payload_data, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    payload = predictions_payload(cv, [(e.test_idx, e.y_true, e.y_pred) for e in evaluations])
     digest = hashlib.sha256(payload).hexdigest()
 
     scores: dict[str, float]
@@ -381,7 +429,7 @@ def _build_model(
 # -- scoring and reuse -----------------------------------------------------------------------
 
 
-def _score(
+def score_classifier(
     names: Sequence[str],
     model: Classifier,
     test_X: list[list[float]],
@@ -419,7 +467,7 @@ def _score(
     return scores
 
 
-def _score_regression(
+def score_regressor(
     names: Sequence[str], y_true: list[float], y_pred: list[float]
 ) -> dict[str, float]:
     functions = {"mae": m.mae, "mse": m.mse, "rmse": m.rmse, "r2": m.r2}
