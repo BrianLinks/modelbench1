@@ -869,5 +869,64 @@ class SweepCommandTests(CliTestCase):
         self.assertEqual(code, 2)  # --data is required
 
 
+class ImportanceCommandTests(CliTestCase):
+    def setUp(self):
+        super().setUp()
+        lines = ["x1,x2,y"] + [f"{i},{(i * 7) % 11},{3.0 * i + 2.0}" for i in range(40)]
+        self.line = self.dir / "line.csv"
+        self.line.write_text("\n".join(lines) + "\n")
+        path = self.dir / "ridge.json"
+        path.write_text(
+            config_text(
+                model="linear_regression", params={}, metrics=["mse", "r2"], dataset_id="line",
+                test_fraction=0.25, seed=5,
+            )
+        )  # fmt: skip
+        code, out, err = self.cli("run", path, "--data", self.line, "--label", "y")
+        self.assertEqual((code, err), (0, ""))
+
+    def importance(self, *extra):
+        return self.cli("importance", "run-000001", "--data", self.line, "--label", "y", *extra)
+
+    def test_text_output_lists_features_best_first(self):
+        code, out, err = self.importance("--metric", "mse", "--repeats", "3")
+        self.assertEqual((code, err), (0, ""))
+        lines = out.splitlines()
+        self.assertEqual(
+            lines[0],
+            "run-000001: permutation importance for mse (lower is better), "
+            "3 shuffle(s) per feature, baseline 0.0000",
+        )
+        self.assertEqual(lines[2].split(), ["rank", "feature", "importance", "std"])
+        self.assertEqual(lines[3].split()[:2], ["1", "x1"])
+        self.assertEqual(lines[4].split(), ["2", "x2", "0.0000", "0.0000"])
+
+    def test_json_output(self):
+        code, out, _ = self.importance("--json", "--seed", "9")
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual((data["run_id"], data["metric"]), ("run-000001", "mse"))
+        self.assertFalse(data["higher_is_better"])
+        self.assertEqual(data["repeats"], 5)
+        self.assertEqual([f["feature"] for f in data["features"]], ["x1", "x2"])
+        self.assertGreater(data["features"][0]["importance"], 100.0)
+
+    def test_errors(self):
+        code, _, err = self.importance("--metric", "mae")
+        self.assertEqual(code, 2)
+        self.assertIn("not one of the run's metrics", err)
+        code, _, err = self.importance("--repeats", "0")
+        self.assertEqual(code, 2)
+        self.assertIn("repeats", err)
+        code, _, err = self.cli("importance", "run-000009", "--data", self.line, "--label", "y")
+        self.assertEqual(code, 2)
+        self.assertIn("run-000009", err)
+        other = self.dir / "other.csv"
+        other.write_text("x1,x2,y\n1,1,1\n2,2,2\n3,3,3\n")
+        code, _, err = self.cli("importance", "run-000001", "--data", other, "--label", "y")
+        self.assertEqual(code, 2)
+        self.assertIn("not the dataset version", err)
+
+
 if __name__ == "__main__":
     unittest.main()

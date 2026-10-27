@@ -74,3 +74,7 @@ class PreprocessError(ModelBenchError, ValueError):
 
 class StatsError(ModelBenchError, ValueError):
     """Inputs a statistical test cannot use."""
+
+
+class AnalysisError(ModelBenchError, ValueError):
+    """A run that cannot be analysed with the data given, or an unusable analysis option."""

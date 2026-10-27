@@ -5,6 +5,8 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- `importance` command and `permutation_importance`: seeded permutation feature importance for a
+  stored run, rebuilt with the new `runner.refit` and checked against the run's predictions hash.
 - Preprocessing (`preprocess` in the config): one-hot categories, mean/median/constant imputation
   with optional missing-value indicators, standardising and min-max scaling, all fitted on the
   training rows of each fold only. Runs record `n_features`.

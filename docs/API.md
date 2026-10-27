@@ -121,6 +121,22 @@ best = sweep.best()
 assert best is not None and best.params == {"k": 1}  # ties go to the earliest run
 ```
 
+## Feature importance
+
+`permutation_importance` rebuilds the model of a stored run, checks it against the run's
+predictions hash, then shuffles one feature at a time among the test rows and reports how much
+the metric got worse. It refuses data that is not the run's own, so the answer is always about
+the model that actually ran.
+
+```python
+from modelbench.importance import permutation_importance
+
+importance = permutation_importance(store, result.run_id, table, "label", repeats=5)
+assert importance.metric == "accuracy" and importance.baseline == 1.0
+assert {f.feature for f in importance.features} == {"x1", "x2"}
+assert importance.features[0].importance > 0  # shuffling the most important feature hurts
+```
+
 ## Reading the store
 
 ```python

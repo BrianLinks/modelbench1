@@ -117,6 +117,7 @@ modelbench [--db runs.db] <command> ...
 |---|---|
 | `run CONFIG.json --data F.csv --label COL` | run an experiment (`--features a,b`, `--artifact-dir D`, `--reuse`) |
 | `sweep SWEEP.json --data F.csv --label COL` | run every combination of a parameter grid and rank them (`--rank-by`, `--no-reuse`, `--stop-on-error`) |
+| `importance RUN --data F.csv --label COL` | permutation feature importance for a stored run (`--metric`, `--repeats`, `--seed`) |
 | `list` | runs, newest first (`--experiment`, `--status`, `--limit`) |
 | `show RUN` | one run in full: config, metrics, tags, files, notes |
 | `compare RUN RUN ...` | the first run is the baseline (`--metrics a,b`) |
@@ -131,7 +132,7 @@ modelbench [--db runs.db] <command> ...
 | `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version |
 | `models` | list the available models |
 
-`run`, `sweep`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
+`run`, `sweep`, `importance`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
 defaults to `modelbench.db`; only `run` creates it, and every other command reports a missing
 database instead of making an empty one. A config file is the JSON form of an experiment:
 
@@ -200,6 +201,26 @@ The dashboard's experiment page (`/experiment/<id>`, linked from the run list an
 plots one parameter against one metric for the experiment's completed runs and highlights the
 best run. Pick the parameter and metric with the form; positive values spanning three orders of
 magnitude get a log axis (a zero is kept), and text parameters get one slot per value.
+
+## Feature importance
+
+```
+$ modelbench importance run-000001 --data lin.csv --label y --metric mse
+run-000001: permutation importance for mse (lower is better), 5 shuffle(s) per feature, baseline 10.2412
+
+rank  feature  importance  std
+1     x2       84.7212     25.6420
+2     x1       19.7277     8.2195
+```
+
+Shuffling a feature among the test rows breaks its link to the target. The importance is how
+much the metric got worse (a positive number always means the shuffle hurt, whichever way the
+metric points), and `std` is the spread over every shuffle in every fold. The model is rebuilt
+from the stored config and checked against the run's predictions hash first, so give the same
+CSV and `--features` the run used; anything else is refused instead of describing another
+model. Features are the model's inputs after preprocessing, so one-hot columns count one by
+one, and a cross-validated run whose folds have different one-hot columns cannot be analysed.
+The shuffles are seeded (`--seed`, default the run's seed), so the answer repeats.
 
 ## Sample data and demo
 

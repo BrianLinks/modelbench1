@@ -23,6 +23,7 @@ from .dashboard import DEFAULT_PORT, serve
 from .datasets import make_version, read_csv
 from .errors import CliError, MetricError, ModelBenchError
 from .export import export_json, export_metrics_csv, export_runs, write_text_atomic
+from .importance import ImportanceResult, permutation_importance
 from .importer import import_runs_json, parse_document, parse_runs, read_import_file
 from .models import all_models, model_kind
 from .reproducibility import check_reproducibility, recover_stale_runs
@@ -337,6 +338,54 @@ def cmd_repro(args: argparse.Namespace) -> int:
     return 0 if report.reproduced else 1
 
 
+def _render_importance(result: ImportanceResult) -> str:
+    direction = "higher" if result.higher_is_better else "lower"
+    lines = [
+        f"{result.run_id}: permutation importance for {result.metric} ({direction} is better), "
+        f"{result.repeats} shuffle(s) per feature, baseline {_fmt(result.baseline)}",
+        "",
+    ]
+    rows = [["rank", "feature", "importance", "std"]]
+    for position, item in enumerate(result.features, start=1):
+        rows.append([str(position), _safe(item.feature), _fmt(item.importance), _fmt(item.std)])
+    lines.append(_table(rows))
+    return "\n".join(lines)
+
+
+def cmd_importance(args: argparse.Namespace) -> int:
+    table = read_csv(args.data)
+    with _open_existing(args.db) as store:
+        result = permutation_importance(
+            store,
+            args.run_id,
+            table,
+            args.label,
+            feature_columns=_split_list(args.features, "--features"),
+            metric=args.metric,
+            repeats=args.repeats,
+            seed=args.seed,
+        )
+    if args.json:
+        print(
+            _json(
+                {
+                    "run_id": result.run_id,
+                    "metric": result.metric,
+                    "higher_is_better": result.higher_is_better,
+                    "baseline": result.baseline,
+                    "repeats": result.repeats,
+                    "features": [
+                        {"feature": f.feature, "importance": f.importance, "std": f.std}
+                        for f in result.features
+                    ],
+                }
+            )
+        )
+    else:
+        print(_render_importance(result))
+    return 0
+
+
 def cmd_note(args: argparse.Namespace) -> int:
     with _open_existing(args.db) as store:
         store.add_note(args.run_id, args.text)
@@ -519,6 +568,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--label", required=True)
     p.add_argument("--features")
     p.add_argument("--tolerance", type=float, default=0.0, help="absolute metric tolerance")
+
+    p = add("importance", cmd_importance, "permutation feature importance for a run", True)
+    p.add_argument("run_id")
+    p.add_argument("--data", required=True, help="the CSV the run used")
+    p.add_argument("--label", required=True)
+    p.add_argument("--features", help="the feature columns the run used, if it chose some")
+    p.add_argument("--metric", help="metric to measure (default: the run's first)")
+    p.add_argument("--repeats", type=int, default=5, help="shuffles per feature (default 5)")
+    p.add_argument("--seed", type=int, help="shuffle seed (default: the run's seed)")
 
     p = add("note", cmd_note, "attach a note to a run")
     p.add_argument("run_id")
