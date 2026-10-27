@@ -280,7 +280,7 @@ def confusion_heatmap(cm: ConfusionMatrix, title: str = "Confusion matrix") -> s
 
 # -- pages ----------------------------------------------------------------------------------
 
-_CSS = """
+CSS = """
 :root{--bg:#fff;--fg:#1d2430;--muted:#5c6675;--line:#d9dee6;--accent:#1f5fbf;--bar:#3b7dd8;
 --bad:#b3261e;--ok:#1b6e3c;--card:#f6f8fb}
 @media (prefers-color-scheme:dark){:root{--bg:#14181f;--fg:#e6e9ef;--muted:#9aa4b2;
@@ -309,7 +309,7 @@ def page(title: str, body: str) -> str:
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f"<title>{esc(title)} - ModelBench</title><style>{_CSS}</style></head><body>"
+        f"<title>{esc(title)} - ModelBench</title><style>{CSS}</style></head><body>"
         '<nav><a href="/">ModelBench</a><span class="muted">read-only dashboard</span></nav>'
         f"<main>{body}</main></body></html>"
     )
