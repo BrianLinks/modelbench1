@@ -5,6 +5,8 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- `report` command and `report` module: a standalone, script-free HTML or Markdown report on
+  one experiment's runs, deterministic for the same database contents.
 - `learning-curve` command and `learning_curve`: train and test score at growing fractions of
   the training rows, per fold when cross-validating.
 - `importance` command and `permutation_importance`: seeded permutation feature importance for a

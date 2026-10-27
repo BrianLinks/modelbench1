@@ -983,5 +983,44 @@ class LearningCurveCommandTests(CliTestCase):
         self.assertIn("not one of the config's metrics", err)
 
 
+class ReportCommandTests(CliTestCase):
+    def setUp(self):
+        super().setUp()
+        self.run_experiment()
+        (self.dir / "m.json").write_text(config_text(model="majority", params={}))
+        self.run_experiment(self.dir / "m.json")
+
+    def test_markdown_to_stdout(self):
+        code, out, err = self.cli("report", "exp-a", "--format", "md")
+        self.assertEqual((code, err), (0, ""))
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "# Experiment exp-a")
+        self.assertIn("Ranked by accuracy (higher is better).", out)
+        self.assertEqual(lines[6].split(" | ")[1], "run-000001 (best)")
+
+    def test_html_to_a_file_has_no_script(self):
+        target = self.dir / "report.html"
+        code, out, _ = self.cli("report", "exp-a", "-o", target)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, f"wrote the report on 2 run(s) to {target}\n")
+        html = target.read_text(encoding="utf-8")
+        self.assertIn("<title>Experiment exp-a - ModelBench report</title>", html)
+        self.assertNotIn("<script", html)
+
+    def test_metric_choice_and_errors(self):
+        code, out, _ = self.cli("report", "exp-a", "--format", "md", "--metric", "f1")
+        self.assertIn("Ranked by f1", out)
+        code, _, err = self.cli("report", "exp-a", "--metric", "nope")
+        self.assertEqual(code, 2)
+        self.assertIn("is not a metric of these runs", err)
+        code, _, err = self.cli("report", "missing")
+        self.assertEqual(code, 2)
+        self.assertIn("has no completed runs", err)
+
+    def test_the_same_runs_give_the_same_bytes(self):
+        first = self.cli("report", "exp-a")[1]
+        self.assertEqual(first, self.cli("report", "exp-a")[1])
+
+
 if __name__ == "__main__":
     unittest.main()

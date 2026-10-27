@@ -27,6 +27,7 @@ from .importance import ImportanceResult, permutation_importance
 from .importer import import_runs_json, parse_document, parse_runs, read_import_file
 from .learning_curve import DEFAULT_FRACTIONS, LearningCurve, learning_curve
 from .models import all_models, model_kind
+from .report import collect, render_html, render_markdown
 from .reproducibility import check_reproducibility, recover_stale_runs
 from .run_comparison import RunComparison, compare_runs
 from .runner import run_experiment
@@ -467,6 +468,18 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    with _open_existing(args.db) as store:
+        data = collect(store, args.experiment, args.metric)
+    text = render_html(data) if args.format == "html" else render_markdown(data)
+    if args.output:
+        write_text_atomic(args.output, text)
+        print(f"wrote the report on {len(data.runs)} run(s) to {args.output}")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     # a dry run never creates the database; against a missing one it checks for an empty one
     text = read_import_file(args.file)
@@ -658,6 +671,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("export", cmd_export, "export runs as JSON or a metrics CSV")
     p.add_argument("run_ids", nargs="+")
     p.add_argument("--format", choices=("json", "csv"), default="json")
+    p.add_argument("-o", "--output", help="write to a file instead of stdout")
+
+    p = add("report", cmd_report, "write a standalone report on one experiment's runs")
+    p.add_argument("experiment")
+    p.add_argument("--format", choices=("html", "md"), default="html")
+    p.add_argument("--metric", help="metric to rank by (default: the newest run's first metric)")
     p.add_argument("-o", "--output", help="write to a file instead of stdout")
 
     p = add("sample", cmd_sample, "write a seeded synthetic dataset as CSV")

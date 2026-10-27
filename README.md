@@ -118,6 +118,7 @@ modelbench [--db runs.db] <command> ...
 | `run CONFIG.json --data F.csv --label COL` | run an experiment (`--features a,b`, `--artifact-dir D`, `--reuse`) |
 | `sweep SWEEP.json --data F.csv --label COL` | run every combination of a parameter grid and rank them (`--rank-by`, `--no-reuse`, `--stop-on-error`) |
 | `importance RUN --data F.csv --label COL` | permutation feature importance for a stored run (`--metric`, `--repeats`, `--seed`) |
+| `report EXPERIMENT` | a standalone report on one experiment's completed runs: HTML with charts, or `--format md` (`--metric`, `-o FILE`) |
 | `learning-curve CONFIG.json --data F.csv --label COL` | train and test score at growing training-set sizes (`--fractions`, `--metric`) |
 | `list` | runs, newest first (`--experiment`, `--status`, `--limit`) |
 | `show RUN` | one run in full: config, metrics, tags, files, notes |
@@ -202,6 +203,16 @@ The dashboard's experiment page (`/experiment/<id>`, linked from the run list an
 plots one parameter against one metric for the experiment's completed runs and highlights the
 best run. Pick the parameter and metric with the form; positive values spanning three orders of
 magnitude get a log axis (a zero is kept), and text parameters get one slot per value.
+
+## Reports
+
+`modelbench report EXPERIMENT -o report.html` writes one file you can mail, archive or commit. It
+ranks the experiment's completed runs by a metric (`--metric`, default the newest run's first),
+charts that metric by run and against each parameter that differs between runs, and shows the
+best run in full: seed, dataset, confusion matrix, tags, environment and notes. `--format md`
+gives the same tables as Markdown without charts. The HTML has no script and no outside
+resources, and the output depends only on what is in the database, so the same runs always give
+the same bytes. Failed runs are counted, not listed.
 
 ## Feature importance
 
