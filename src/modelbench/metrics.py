@@ -275,6 +275,155 @@ def roc_auc(y_true: Sequence[Label], y_score: Sequence[float], positive_label: L
     return (positive_rank_sum - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
 
 
+@dataclass(frozen=True)
+class CurvePoint:
+    x: float
+    y: float
+    threshold: float  # score at or above which rows are called positive; inf for the first point
+
+
+def _binary_scores(
+    name: str, y_true: Sequence[Label], y_score: Sequence[float], positive_label: Label
+) -> tuple[list[bool], list[float]]:
+    _check_pair(y_true, y_score)
+    if len(set(y_true)) > 2:
+        raise MetricError(f"{name} supports at most two distinct labels")
+    return [t == positive_label for t in y_true], _numbers(y_score, "y_score")
+
+
+def roc_curve(
+    y_true: Sequence[Label], y_score: Sequence[float], positive_label: Label = 1
+) -> list[CurvePoint]:
+    """ROC points `(false positive rate, true positive rate)` from the strictest threshold down.
+
+    Starts at (0, 0) with an infinite threshold and takes rows with equal scores together, so the
+    trapezoid area under the points equals `roc_auc`.
+    """
+    positive, scores = _binary_scores("roc_curve", y_true, y_score, positive_label)
+    n_pos = sum(positive)
+    n_neg = len(positive) - n_pos
+    if n_pos == 0 or n_neg == 0:
+        raise MetricError("roc_curve needs at least one positive and one negative sample")
+    order = sorted(range(len(scores)), key=lambda i: -scores[i])
+    points = [CurvePoint(0.0, 0.0, math.inf)]
+    tp = fp = position = 0
+    while position < len(order):
+        end = position
+        while end + 1 < len(order) and scores[order[end + 1]] == scores[order[position]]:
+            end += 1
+        for k in range(position, end + 1):
+            if positive[order[k]]:
+                tp += 1
+            else:
+                fp += 1
+        points.append(CurvePoint(fp / n_neg, tp / n_pos, scores[order[position]]))
+        position = end + 1
+    return points
+
+
+def precision_recall_curve(
+    y_true: Sequence[Label], y_score: Sequence[float], positive_label: Label = 1
+) -> list[CurvePoint]:
+    """Points `(recall, precision)` for each distinct score threshold, strictest first.
+
+    Rows with equal scores are taken together, so the step sum of recall gain times precision
+    equals `average_precision`.
+    """
+    positive, scores = _binary_scores("precision_recall_curve", y_true, y_score, positive_label)
+    n_pos = sum(positive)
+    if n_pos == 0:
+        raise MetricError("precision_recall_curve needs at least one positive sample")
+    order = sorted(range(len(scores)), key=lambda i: -scores[i])
+    points: list[CurvePoint] = []
+    tp = position = 0
+    while position < len(order):
+        end = position
+        while end + 1 < len(order) and scores[order[end + 1]] == scores[order[position]]:
+            end += 1
+        tp += sum(1 for k in range(position, end + 1) if positive[order[k]])
+        points.append(CurvePoint(tp / n_pos, tp / (end + 1), scores[order[position]]))
+        position = end + 1
+    return points
+
+
+def _probabilities(values: Sequence[float]) -> list[float]:
+    numbers = _numbers(values, "y_prob")
+    if any(p < 0 or p > 1 for p in numbers):
+        raise MetricError("probabilities must lie in [0, 1]")
+    return numbers
+
+
+def brier_score(
+    y_true: Sequence[Label], y_prob: Sequence[float], positive_label: Label = 1
+) -> float:
+    """Mean squared difference between the probability of the positive label and what happened
+    (1 if the row is positive, else 0). 0 is perfect; always saying 0.5 scores 0.25."""
+    positive, _ = _binary_scores("brier_score", y_true, y_prob, positive_label)
+    probs = _probabilities(y_prob)
+    return math.fsum(
+        (p - (1.0 if hit else 0.0)) ** 2 for p, hit in zip(probs, positive, strict=True)
+    ) / len(probs)
+
+
+@dataclass(frozen=True)
+class CalibrationBin:
+    low: float
+    high: float  # the last bin includes 1.0; the others exclude their upper edge
+    count: int
+    mean_predicted: float
+    observed_rate: float
+
+
+MAX_CALIBRATION_BINS = 100
+
+
+def calibration_bins(
+    y_true: Sequence[Label],
+    y_prob: Sequence[float],
+    positive_label: Label = 1,
+    n_bins: int = 10,
+) -> list[CalibrationBin]:
+    """Group rows by predicted probability of the positive label into equal-width bins and
+    compare the average prediction with how often the positive label really occurred. Empty
+    bins are left out."""
+    if isinstance(n_bins, bool) or not isinstance(n_bins, int):
+        raise MetricError(f"n_bins must be a whole number, got {n_bins!r}")
+    if not 1 <= n_bins <= MAX_CALIBRATION_BINS:
+        raise MetricError(f"n_bins must be from 1 to {MAX_CALIBRATION_BINS}")
+    positive, _ = _binary_scores("calibration_bins", y_true, y_prob, positive_label)
+    probs = _probabilities(y_prob)
+    members: list[list[int]] = [[] for _ in range(n_bins)]
+    for i, p in enumerate(probs):
+        members[min(int(p * n_bins), n_bins - 1)].append(i)
+    bins = []
+    for b, rows in enumerate(members):
+        if not rows:
+            continue
+        bins.append(
+            CalibrationBin(
+                b / n_bins,
+                (b + 1) / n_bins,
+                len(rows),
+                math.fsum(probs[i] for i in rows) / len(rows),
+                sum(positive[i] for i in rows) / len(rows),
+            )
+        )
+    return bins
+
+
+def expected_calibration_error(
+    y_true: Sequence[Label],
+    y_prob: Sequence[float],
+    positive_label: Label = 1,
+    n_bins: int = 10,
+) -> float:
+    """Weighted average gap between predicted probability and observed rate over the bins
+    of `calibration_bins`: 0 means the probabilities mean what they say."""
+    bins = calibration_bins(y_true, y_prob, positive_label, n_bins)
+    total = sum(b.count for b in bins)
+    return math.fsum(b.count / total * abs(b.observed_rate - b.mean_predicted) for b in bins)
+
+
 def log_loss(
     y_true: Sequence[Label],
     y_prob: Sequence[Any],

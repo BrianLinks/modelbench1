@@ -45,8 +45,11 @@ CLASSIFICATION_METRICS = (
     "balanced_accuracy",
     "mcc",
     "average_precision",
+    "brier_score",
+    "ece",
 )
 SCORE_NEEDS_TWO_CLASSES = ("roc_auc", "average_precision")
+NEEDS_TWO_TRAINING_CLASSES = ("brier_score", "ece")  # probabilities of the second class
 REGRESSION_METRICS = ("mae", "mse", "rmse", "r2")
 REUSE_TAGS = ("n_train", "n_test", "predictions_sha256")
 
@@ -347,6 +350,12 @@ def _check_split_for_metrics(
             raise RunnerError(
                 f"{needs_two} needs both classes in the test split, found {len(set(test_labels))}"
             )
+    for name in NEEDS_TWO_TRAINING_CLASSES:
+        if name in names and len(set(train_labels)) != 2:
+            raise RunnerError(
+                f"{name} needs exactly two classes in the training split, "
+                f"found {len(set(train_labels))}"
+            )
     if "log_loss" in names:
         unseen = sorted(set(test_labels) - set(train_labels), key=str)
         if unseen:
@@ -395,10 +404,15 @@ def _score(
             scores[name] = getattr(m.precision_recall_f1(y_true, y_pred, average=average), base)
         else:
             proba = proba if proba is not None else model.predict_proba(test_X)
-            if name in SCORE_NEEDS_TWO_CLASSES:
+            if name in SCORE_NEEDS_TWO_CLASSES or name in NEEDS_TWO_TRAINING_CLASSES:
                 _, positive = model.classes_
                 column = [row[1] for row in proba]
-                function = m.roc_auc if name == "roc_auc" else m.average_precision
+                function = {
+                    "roc_auc": m.roc_auc,
+                    "average_precision": m.average_precision,
+                    "brier_score": m.brier_score,
+                    "ece": m.expected_calibration_error,
+                }[name]
                 scores[name] = function(y_true, column, positive_label=positive)
             else:
                 scores[name] = m.log_loss(y_true, proba, labels=model.classes_)

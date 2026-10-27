@@ -8,6 +8,10 @@ All notable changes to this project are documented here.
 - Preprocessing (`preprocess` in the config): one-hot categories, mean/median/constant imputation
   with optional missing-value indicators, standardising and min-max scaling, all fitted on the
   training rows of each fold only. Runs record `n_features`.
+- Metrics `brier_score` and `ece`, and the functions `roc_curve`, `precision_recall_curve`,
+  `calibration_bins` and `expected_calibration_error`, checked against hand-computed points and
+  the area identities with `roc_auc` and `average_precision`.
+- `stats` module: paired t-test and exact McNemar test.
 - A Python interface guide (`docs/API.md`) whose examples are run by the test suite.
 
 ## [0.2.0] - 2026-10-26

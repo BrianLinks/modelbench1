@@ -32,6 +32,8 @@ HIGHER_IS_BETTER: dict[str, bool] = {
     "average_precision": True,
     "r2": True,
     "log_loss": False,
+    "brier_score": False,
+    "ece": False,
     "mae": False,
     "mse": False,
     "rmse": False,

@@ -35,6 +35,8 @@ KNOWN_METRICS = (
     "balanced_accuracy",
     "mcc",
     "average_precision",
+    "brier_score",
+    "ece",
     "mae",
     "mse",
     "rmse",

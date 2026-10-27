@@ -495,14 +495,18 @@ Pure-Python implementations with no dependencies:
 
 - classification: accuracy, balanced accuracy, Matthews correlation (MCC), confusion matrix,
   precision, recall, and F1 (per class, macro, micro, weighted), ROC-AUC and average precision
-  (both binary), log loss
+  (both binary), log loss, Brier score and expected calibration error (binary), and the ROC
+  and precision-recall curves and calibration bins behind them
 - regression: MAE, MSE, RMSE, R²
 
 In an experiment config the metric names are `accuracy`, `precision`, `recall`, `f1` (macro),
 `precision_micro`, `precision_weighted`, `recall_micro`, `recall_weighted`, `f1_micro`,
-`f1_weighted`, `balanced_accuracy`, `mcc`, `roc_auc`, `average_precision`, `log_loss` for
+`f1_weighted`, `balanced_accuracy`, `mcc`, `roc_auc`, `average_precision`, `log_loss`,
+`brier_score`, `ece` (expected calibration error, 10 bins) for
 classifiers and `mae`, `mse`, `rmse`, `r2` for regressors. `roc_auc` and `average_precision` need
-exactly two classes, with both present in the test split. Balanced accuracy averages recall over
+exactly two classes, with both present in the test split; `brier_score` and `ece` need exactly
+two classes in the training split (lower is better for both; they score the probability of
+the second class). Balanced accuracy averages recall over
 the classes present in the true labels, so a majority-class guess scores 1 / (number of classes).
 
 Every formula is tested against small hand-computed examples.
