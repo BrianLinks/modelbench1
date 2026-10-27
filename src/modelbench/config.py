@@ -16,6 +16,7 @@ from typing import Any
 from .datasets import MAX_FOLDS
 from .errors import ConfigError
 from .ids import validate_id
+from .preprocess import PreprocessSpec
 from .seeding import check_seed
 
 KNOWN_METRICS = (
@@ -53,6 +54,7 @@ _CONFIG_KEYS = {
     "test_fraction",
     "stratify",
     "cv_folds",
+    "preprocess",
 }
 _REQUIRED_KEYS = ("experiment_id", "model", "seed", "dataset_id", "metrics")
 
@@ -98,6 +100,7 @@ class ExperimentConfig:
     test_fraction: float = 0.2
     stratify: bool = False
     cv_folds: int | None = None
+    preprocess: PreprocessSpec | None = None
 
     def __post_init__(self) -> None:
         validate_id("experiment", self.experiment_id)
@@ -121,6 +124,8 @@ class ExperimentConfig:
             isinstance(folds, bool) or not isinstance(folds, int) or not 2 <= folds <= MAX_FOLDS
         ):
             raise ConfigError(f"cv_folds must be null or a whole number from 2 to {MAX_FOLDS}")
+        if self.preprocess is not None and not isinstance(self.preprocess, PreprocessSpec):
+            raise ConfigError("preprocess must be a PreprocessSpec or null")
         if not isinstance(self.metrics, tuple) or not self.metrics:
             raise ConfigError("metrics must be a non-empty tuple of metric names")
         unknown = [m for m in self.metrics if m not in KNOWN_METRICS]
@@ -147,6 +152,8 @@ class ExperimentConfig:
         }
         if self.cv_folds is not None:  # absent when unused, so older configs keep their hash
             data["cv_folds"] = self.cv_folds
+        if self.preprocess is not None:
+            data["preprocess"] = self.preprocess.to_dict()
         return data
 
     def canonical_json(self) -> str:
@@ -188,6 +195,11 @@ class ExperimentConfig:
             test_fraction=data.get("test_fraction", 0.2),
             stratify=data.get("stratify", False),
             cv_folds=data.get("cv_folds"),
+            preprocess=(
+                PreprocessSpec.from_dict(data["preprocess"])
+                if data.get("preprocess") is not None
+                else None
+            ),
         )
 
     @classmethod

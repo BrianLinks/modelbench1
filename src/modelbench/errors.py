@@ -66,3 +66,7 @@ class RunImportError(ModelBenchError, ValueError):
 
 class SweepError(ModelBenchError, ValueError):
     """A sweep file or option that cannot be used."""
+
+
+class PreprocessError(ModelBenchError, ValueError):
+    """A preprocessing setting or a value it cannot handle."""

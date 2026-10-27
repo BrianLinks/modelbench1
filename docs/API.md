@@ -75,6 +75,34 @@ fit = run_experiment(store, regression, line, "y")
 assert abs(fit.metrics["r2"] - 1.0) < 1e-9
 ```
 
+Text categories and missing values need a `preprocess` setting. It is fitted on each training
+split only, so the test rows never influence it.
+
+```python
+from modelbench.preprocess import PreprocessSpec
+
+towns = Table(
+    ("town", "size", "label"),
+    tuple(
+        (("Oslo", "Rome", "Lima")[i % 3], "NA" if i % 5 == 0 else str(i), "abc"[i % 3])
+        for i in range(30)
+    ),
+)
+prepared = ExperimentConfig(
+    "docs-towns",
+    "decision_tree",
+    seed=1,
+    dataset_id="towns",
+    metrics=("accuracy",),
+    params={},
+    stratify=True,
+    preprocess=PreprocessSpec(categorical=("town",), impute="median", scale="standardize"),
+)
+towns_result = run_experiment(store, prepared, towns, "label")
+assert towns_result.metrics["accuracy"] == 1.0  # the town decides the label
+assert store.get_run(towns_result.run_id).tags["n_features"] == "4"  # 3 towns + size
+```
+
 ## Sweeps
 
 `run_sweep` runs every combination of a parameter grid as one experiment and ranks the runs by a

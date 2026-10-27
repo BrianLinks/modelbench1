@@ -12,7 +12,6 @@ import hashlib
 import inspect
 import json
 import math
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +25,7 @@ from .environment import environment_fingerprint
 from .errors import RunnerError
 from .models import REGISTRY, REGRESSORS, create_model, create_regressor, model_kind
 from .models.base import Classifier, Label, Regressor
+from .preprocess import NUMBER_RE, Cell, fit_transform_split, parse_cells
 from .seeding import derive_seed
 from .store import Store
 
@@ -49,7 +49,6 @@ CLASSIFICATION_METRICS = (
 SCORE_NEEDS_TWO_CLASSES = ("roc_auc", "average_precision")
 REGRESSION_METRICS = ("mae", "mse", "rmse", "r2")
 REUSE_TAGS = ("n_train", "n_test", "predictions_sha256")
-_NUMBER_RE = re.compile(r"[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?")  # ASCII digits only
 
 
 @dataclass(frozen=True)
@@ -87,8 +86,8 @@ def run_experiment(
     _check_metrics(config.metrics, kind)
     if kind == "regression" and config.stratify:
         raise RunnerError("stratify applies to classification; regression has no classes")
-    X, y = _features_and_labels(
-        table, label_column, feature_columns, numeric_target=kind == "regression"
+    names, X, cells, y = _features_and_labels(
+        table, label_column, feature_columns, kind == "regression", config
     )
     dataset = make_version(config.dataset_id, table, label_column)
     labels_for_split = y if config.stratify else None
@@ -100,6 +99,7 @@ def run_experiment(
         _check_split_for_metrics(
             config.metrics, [y[i] for i in train_idx], [y[i] for i in test_idx]
         )  # no-op for regression
+    folds = _prepare_folds(config, names, X, cells, y, splits)  # preprocessing errors surface now
     _build_model(config)  # reject unknown models and parameters before a run exists
 
     if reuse_existing:
@@ -110,7 +110,7 @@ def run_experiment(
     env = dict(environment) if environment is not None else environment_fingerprint()
     run_id = store.create_run(config, dataset, env)
     try:
-        return _execute(store, run_id, config, X, y, splits, artifact_dir)
+        return _execute(store, run_id, config, folds, artifact_dir)
     except Exception as exc:
         store.fail_run(run_id, f"{type(exc).__name__}: {exc}")
         raise
@@ -124,24 +124,56 @@ class _Evaluation:
     y_pred: list[Any]
 
 
-def _evaluate(
+@dataclass(frozen=True)
+class _Fold:
+    train_X: list[list[float]]
+    train_y: list[Any]
+    test_X: list[list[float]]
+    test_y: list[Any]
+    test_idx: list[int]
+    n_features: int
+
+
+def _prepare_folds(
     config: ExperimentConfig,
-    model: Classifier | Regressor,
+    names: Sequence[str],
     X: list[list[float]],
+    cells: list[list[Cell]] | None,
     y: list[Label],
-    train_idx: list[int],
-    test_idx: list[int],
-) -> _Evaluation:
-    train_y: list[Any] = [y[i] for i in train_idx]  # labels, or floats for a regressor
-    model.fit([X[i] for i in train_idx], train_y)
-    test_X = [X[i] for i in test_idx]
-    y_true: list[Any] = [y[i] for i in test_idx]
-    y_pred: list[Any] = list(model.predict(test_X))
+    splits: list[tuple[list[int], list[int]]],
+) -> list[_Fold]:
+    """The feature matrices of every split. Preprocessing is fitted on each training set only."""
+    folds: list[_Fold] = []
+    for train_idx, test_idx in splits:
+        if config.preprocess is not None and cells is not None:
+            train_X, test_X, feature_names = fit_transform_split(
+                config.preprocess, names, cells, train_idx, test_idx
+            )
+        else:
+            train_X, test_X = [X[i] for i in train_idx], [X[i] for i in test_idx]
+            feature_names = list(names)
+        folds.append(
+            _Fold(
+                train_X,
+                [y[i] for i in train_idx],
+                test_X,
+                [y[i] for i in test_idx],
+                test_idx,
+                len(feature_names),
+            )
+        )
+    return folds
+
+
+def _evaluate(config: ExperimentConfig, model: Classifier | Regressor, fold: _Fold) -> _Evaluation:
+    model.fit(fold.train_X, fold.train_y)
+    y_true: list[Any] = list(fold.test_y)
+    y_pred: list[Any] = list(model.predict(fold.test_X))
     if isinstance(model, Regressor):
         scores = _score_regression(config.metrics, y_true, y_pred)
     else:
-        scores = _score(config.metrics, model, test_X, y_true, y_pred)
-    return _Evaluation(scores, test_idx, y_true, y_pred)
+        scores = _score(config.metrics, model, fold.test_X, y_true, y_pred)
+    return _Evaluation(scores, fold.test_idx, y_true, y_pred)
 
 
 def _mean_and_std(values: Sequence[float]) -> tuple[float, float]:
@@ -154,19 +186,17 @@ def _execute(
     store: Store,
     run_id: str,
     config: ExperimentConfig,
-    X: list[list[float]],
-    y: list[Label],
-    splits: list[tuple[list[int], list[int]]],
+    folds: list[_Fold],
     artifact_dir: str | Path | None,
 ) -> RunResult:
     cv = config.cv_folds is not None
     evaluations: list[_Evaluation] = []
     model: Classifier | Regressor | None = None
     model_seed: int | None = None
-    for fold, (train_idx, test_idx) in enumerate(splits):
-        model, seed = _build_model(config, fold if cv else None)
+    for number, fold in enumerate(folds):
+        model, seed = _build_model(config, number if cv else None)
         model_seed = seed if not cv else None
-        evaluations.append(_evaluate(config, model, X, y, train_idx, test_idx))
+        evaluations.append(_evaluate(config, model, fold))
     assert model is not None  # a run always has at least one split
 
     y_true: list[Any] = [v for e in evaluations for v in e.y_true]
@@ -187,23 +217,25 @@ def _execute(
     scores: dict[str, float]
     if cv:
         scores = {}
-        for fold, evaluation in enumerate(evaluations):
+        for index, evaluation in enumerate(evaluations):
             store.log_metrics(
-                run_id, {f"fold/{name}": v for name, v in evaluation.scores.items()}, step=fold
+                run_id, {f"fold/{name}": v for name, v in evaluation.scores.items()}, step=index
             )
         for name in config.metrics:
             mean, std = _mean_and_std([e.scores[name] for e in evaluations])
             scores[name], scores[f"{name}_std"] = mean, std
         store.log_metrics(run_id, scores)
-        n_train = max(len(train) for train, _ in splits)
+        n_train = max(len(f.train_y) for f in folds)
         n_test = len(y_true)  # every row is tested exactly once
-        store.set_tag(run_id, "cv_folds", str(len(splits)))
+        store.set_tag(run_id, "cv_folds", str(len(folds)))
     else:
         scores = evaluations[0].scores
         store.log_metrics(run_id, scores)
-        n_train, n_test = len(splits[0][0]), len(splits[0][1])
+        n_train, n_test = len(folds[0].train_y), len(folds[0].test_y)
     store.set_tag(run_id, "n_train", str(n_train))
     store.set_tag(run_id, "n_test", str(n_test))
+    if config.preprocess is not None:  # the width after encoding is not the number of columns
+        store.set_tag(run_id, "n_features", str(max(f.n_features for f in folds)))
     store.set_tag(run_id, "predictions_sha256", digest)
     if not isinstance(model, Regressor):
         known = list(model.classes_) if not cv else []
@@ -246,8 +278,11 @@ def _features_and_labels(
     table: Table,
     label_column: str,
     feature_columns: Sequence[str] | None,
-    numeric_target: bool = False,
-) -> tuple[list[list[float]], list[Label]]:
+    numeric_target: bool,
+    config: ExperimentConfig,
+) -> tuple[list[str], list[list[float]], list[list[Cell]] | None, list[Label]]:
+    """Feature names, then either numeric features or (with preprocessing) parsed cells, then
+    the labels."""
     if label_column not in table.columns:
         raise RunnerError(f"label column {label_column!r} is not in the dataset")
     if feature_columns is None:
@@ -265,16 +300,22 @@ def _features_and_labels(
         raise RunnerError("no feature columns to train on")
     positions = [table.columns.index(c) for c in names]
     X: list[list[float]] = []
-    for row_number, row in enumerate(table.rows, start=1):
-        values: list[float] = []
-        for name, position in zip(names, positions, strict=True):
-            cell = row[position].strip()
-            if _NUMBER_RE.fullmatch(cell) is None or not math.isfinite(float(cell)):
-                raise RunnerError(
-                    f"row {row_number}, column {name!r}: {row[position]!r} is not a finite number"
-                )
-            values.append(float(cell))
-        X.append(values)
+    cells: list[list[Cell]] | None = None
+    if config.preprocess is not None:
+        raw = [[row[p] for p in positions] for row in table.rows]
+        cells = parse_cells(raw, names, config.preprocess)
+    else:
+        for row_number, row in enumerate(table.rows, start=1):
+            values: list[float] = []
+            for name, position in zip(names, positions, strict=True):
+                cell = row[position].strip()
+                if NUMBER_RE.fullmatch(cell) is None or not math.isfinite(float(cell)):
+                    raise RunnerError(
+                        f"row {row_number}, column {name!r}: {row[position]!r} is not a finite "
+                        "number"
+                    )
+                values.append(float(cell))
+            X.append(values)
     label_position = table.columns.index(label_column)
     y: list[Label] = []
     for row_number, row in enumerate(table.rows, start=1):
@@ -283,12 +324,12 @@ def _features_and_labels(
             raise RunnerError(f"row {row_number}: label is empty")
         if numeric_target:
             text = label.strip()
-            if _NUMBER_RE.fullmatch(text) is None or not math.isfinite(float(text)):
+            if NUMBER_RE.fullmatch(text) is None or not math.isfinite(float(text)):
                 raise RunnerError(f"row {row_number}: target {label!r} is not a finite number")
             y.append(float(text))
         else:
             y.append(label)
-    return X, y
+    return names, X, cells, y
 
 
 def _check_split_for_metrics(

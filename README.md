@@ -279,6 +279,32 @@ What it will and will not do:
   forbids scripts, remote loads, and framing.
 - Stop it with Ctrl-C.
 
+## Preprocessing
+
+By default every feature must be a finite number. Add a `preprocess` block to the config to
+handle text categories, missing values, and scales:
+
+```json
+{"experiment_id": "houses", "model": "decision_tree", "seed": 1, "dataset_id": "houses",
+ "metrics": ["accuracy"],
+ "preprocess": {"categorical": ["city"], "impute": "median", "scale": "standardize",
+                "missing_indicator": true}}
+```
+
+- `categorical`: columns that hold text. Each becomes one 0/1 column per category seen in the
+  training rows (sorted; missing text is its own category). A category the training rows never
+  saw is all zeros. `max_categories` (default 50) stops a free-text column from exploding.
+- `impute`: what to do with a missing number (empty, NA, N/A, NaN, null, None, or ?):
+  `error` (the default), `mean`, `median`, or `constant` with `fill_value`.
+  `missing_indicator` adds a 0/1 column after each numeric column that had a missing training value.
+- `scale`: `none`, `standardize` (population standard deviation), or `minmax`, for the numeric
+  columns.
+
+Every statistic is learned from the training rows only, in each fold under cross-validation, and
+applied to the test rows, so nothing leaks. Bad cells and over-wide columns are reported before a
+run exists. Runs record an `n_features` tag with the width after encoding. A config without
+`preprocess` behaves and hashes exactly as before.
+
 ## Cross-validation
 
 Set `cv_folds` (2 to 50) in the config to score a model with k-fold cross-validation instead of a

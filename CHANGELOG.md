@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- Preprocessing (`preprocess` in the config): one-hot categories, mean/median/constant imputation
+  with optional missing-value indicators, standardising and min-max scaling, all fitted on the
+  training rows of each fold only. Runs record `n_features`.
+- A Python interface guide (`docs/API.md`) whose examples are run by the test suite.
+
 ## [0.2.0] - 2026-10-26
 
 ### Added
