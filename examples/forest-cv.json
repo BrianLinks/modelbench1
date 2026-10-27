@@ -1,0 +1,10 @@
+{
+  "experiment_id": "blobs-forest",
+  "model": "bagged_trees",
+  "seed": 7,
+  "dataset_id": "blobs",
+  "metrics": ["accuracy", "f1"],
+  "params": {"n_estimators": 15, "max_depth": 4},
+  "cv_folds": 5,
+  "stratify": true
+}

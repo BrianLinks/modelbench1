@@ -1,0 +1,136 @@
+"""Run every file in examples/ through the command line, as the examples README describes."""
+
+import contextlib
+import io
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from modelbench.cli import main
+from modelbench.config import ExperimentConfig
+
+EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+
+
+class ExampleTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.dir = Path(cls._tmp.name)
+        cls.db = str(cls.dir / "runs.db")
+        cls.blobs = cls.dir / "blobs.csv"
+        cls.linear = cls.dir / "linear.csv"
+        for args in (
+            ["sample", "blobs", "--seed", "1", "--rows-per-class", "40", "-o", cls.blobs],
+            ["sample", "linear", "--seed", "1", "--rows", "120", "--noise", "3", "-o", cls.linear],
+        ):
+            code, _, err = cls.cli(*args, db=False)
+            assert code == 0, err
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    @classmethod
+    def cli(cls, *args, db=True):
+        argv = (["--db", cls.db] if db else []) + [str(a) for a in args]
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def example(self, name):
+        return EXAMPLES / name
+
+    def test_every_json_file_is_used_by_the_readme(self):
+        readme = (EXAMPLES / "README.md").read_text(encoding="utf-8")
+        files = sorted(p.name for p in EXAMPLES.glob("*.json"))
+        self.assertGreaterEqual(len(files), 5)
+        for name in files:
+            self.assertIn(f"examples/{name}", readme, name)
+
+    def test_the_single_config_files_are_valid_configs(self):
+        for name in ("knn.json", "forest-cv.json"):
+            config = ExperimentConfig.from_file(self.example(name))
+            self.assertEqual(config.dataset_id, "blobs")
+
+    def test_run_a_single_experiment(self):
+        code, out, err = self.cli(
+            "run", self.example("knn.json"), "--data", self.blobs, "--label", "label", "--json"
+        )
+        self.assertEqual((code, err), (0, ""))
+        data = json.loads(out)
+        self.assertEqual(set(data["metrics"]), {"accuracy", "f1", "balanced_accuracy"})
+        self.assertGreater(data["metrics"]["accuracy"], 0.9)  # the clusters are well separated
+
+    def test_cross_validate_the_forest(self):
+        code, out, err = self.cli(
+            "run",
+            self.example("forest-cv.json"),
+            "--data",
+            self.blobs,
+            "--label",
+            "label",
+            "--json",
+        )
+        self.assertEqual((code, err), (0, ""))
+        data = json.loads(out)
+        self.assertEqual(data["n_test"], 120)  # every row is tested once
+        self.assertIn("accuracy_std", data["metrics"])
+
+    def test_the_sweep_and_the_search_rank_their_runs(self):
+        code, out, err = self.cli(
+            "sweep",
+            self.example("knn-sweep.json"),
+            "--data",
+            self.blobs,
+            "--label",
+            "label",
+            "--json",
+        )
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(len(json.loads(out)["entries"]), 8)
+        code, out, err = self.cli(
+            "search",
+            self.example("knn-search.json"),
+            "--data",
+            self.blobs,
+            "--label",
+            "label",
+            "--json",
+        )
+        self.assertEqual((code, err), (0, ""))
+        self.assertTrue(1 <= len(json.loads(out)["entries"]) <= 8)
+
+    def test_the_ridge_sweep_prefers_a_small_penalty(self):
+        code, out, err = self.cli(
+            "sweep",
+            self.example("ridge-sweep.json"),
+            "--data",
+            self.linear,
+            "--label",
+            "y",
+            "--json",
+        )
+        self.assertEqual((code, err), (0, ""))
+        data = json.loads(out)
+        best = next(e for e in data["entries"] if e["run_id"] == data["best"])
+        self.assertLessEqual(best["params"]["l2"], 1)
+        worst = max(e["metrics"]["mae"] for e in data["entries"])
+        self.assertGreater(worst, best["metrics"]["mae"])
+
+    def test_a_stored_example_run_reproduces_and_reports(self):
+        self.cli("run", self.example("knn.json"), "--data", self.blobs, "--label", "label")
+        listing = json.loads(self.cli("list", "--experiment", "blobs-knn", "--json")[1])
+        run_id = listing[0]["run_id"]
+        code, out, _ = self.cli("repro", run_id, "--data", self.blobs, "--label", "label")
+        self.assertEqual(code, 0, out)
+        target = self.dir / "report.html"
+        code, out, _ = self.cli("report", "blobs-knn", "-o", target)
+        self.assertEqual(code, 0)
+        self.assertIn("blobs-knn", target.read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()

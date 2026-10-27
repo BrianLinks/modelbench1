@@ -276,6 +276,8 @@ the spread. Nothing is stored, and preprocessing is fitted once on each fold's w
 set. Fractions must be increasing, in (0, 1], at most 20 of them. A model that cannot train on a
 small subset (a `k` larger than the rows) stops the curve with the size at fault.
 
+See [examples/](examples) for ready-made config, sweep and search files with the commands to run them.
+
 ## Sample data and demo
 
 Four seeded generators produce tables with no download and no network:

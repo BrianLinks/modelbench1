@@ -5,6 +5,10 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- `examples/`: ready-made config, sweep, search and cross-validation files, run end to end by
+  the test suite.
+- A frozen export file (`tests/golden/export_v1.json`) that the export must match byte for byte
+  and the importer must still accept.
 - Release workflow: pushing a `vX.Y.Z` tag runs the checks and publishes a GitHub release with
   the changelog section as notes; `scripts/release_notes.py` refuses a tag that does not match the
   declared version.

@@ -1,0 +1,11 @@
+{
+  "config": {
+    "experiment_id": "linear-ridge",
+    "model": "linear_regression",
+    "seed": 7,
+    "dataset_id": "linear",
+    "metrics": ["r2", "mae"],
+    "params": {}
+  },
+  "grid": {"l2": [0, 0.1, 1, 10, 100]}
+}

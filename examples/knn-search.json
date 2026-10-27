@@ -1,0 +1,12 @@
+{
+  "config": {
+    "experiment_id": "blobs-knn-search",
+    "model": "knn",
+    "seed": 7,
+    "dataset_id": "blobs",
+    "metrics": ["accuracy"],
+    "params": {"metric": "euclidean"}
+  },
+  "space": {"k": {"int": [1, 15]}, "weights": {"choice": ["uniform", "distance"]}},
+  "trials": 8
+}

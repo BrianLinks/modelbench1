@@ -1,0 +1,8 @@
+{
+  "experiment_id": "blobs-knn",
+  "model": "knn",
+  "seed": 7,
+  "dataset_id": "blobs",
+  "metrics": ["accuracy", "f1", "balanced_accuracy"],
+  "params": {"k": 5}
+}

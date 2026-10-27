@@ -1,0 +1,11 @@
+{
+  "config": {
+    "experiment_id": "blobs-knn-sweep",
+    "model": "knn",
+    "seed": 7,
+    "dataset_id": "blobs",
+    "metrics": ["accuracy", "f1"],
+    "params": {}
+  },
+  "grid": {"k": [1, 3, 5, 9], "weights": ["uniform", "distance"]}
+}
