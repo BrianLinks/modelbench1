@@ -19,7 +19,15 @@ from typing import Any
 
 from . import __version__, confusion
 from .compare import flatten_params, higher_is_better
-from .dashboard import CSS, bar_chart, confusion_heatmap, esc, fmt, scatter_chart
+from .dashboard import (
+    CSS,
+    bar_chart,
+    confusion_heatmap,
+    esc,
+    fmt,
+    parallel_section,
+    scatter_chart,
+)
 from .errors import AnalysisError, CompareError, MetricError
 from .export import write_text_atomic
 from .store import Store
@@ -189,6 +197,9 @@ def render_html(data: ReportData) -> str:
         )
         heading = f"{data.rank_metric} by {param}"
         body.append(f"<h2>{esc(heading)}</h2>{scatter_chart(heading, points, param, best_index)}")
+    best_id = data.best.run_id if data.best is not None else None
+    entries = [(r.run_id, r.params, r.metrics[data.rank_metric]) for r in scored]
+    body.append(parallel_section(data.rank_metric, data.varying, entries, best_id))
     if len(data.varying) > MAX_PLOTS:
         hidden = ", ".join(data.varying[MAX_PLOTS:])
         body.append(f'<p class="muted">Not plotted: {esc(hidden)}.</p>')

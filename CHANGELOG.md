@@ -5,6 +5,8 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- Parallel-coordinates chart on the dashboard's experiment page and in reports, for experiments
+  where two or more parameters vary: one line per run, the best run highlighted.
 - Dataset manifests (`dataset --manifest`): row count, version hash, per-column kind, missing
   cells, distinct values and statistics, and label counts, as canonical JSON.
 - Experiment notes (`note --experiment`, schema migration 3): free text about a whole experiment,

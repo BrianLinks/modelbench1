@@ -147,6 +147,18 @@ class HtmlTests(ReportTestCase):
         self.assertIn("## Notes", md)
         self.assertIn("first \\| pipe", md)  # the pipe is escaped for tables
 
+    def test_two_varying_parameters_add_the_parallel_chart_to_the_report(self):
+        knn = ExperimentConfig("two", "knn", 7, "blobs", ("accuracy",), {})
+        run_sweep(
+            self.store, knn, {"k": [1, 3], "weights": ["uniform", "distance"]}, blobs(), "label",
+            environment=ENV,
+        )  # fmt: skip
+        html = render_html(collect(self.store, "two"))
+        self.assertIn("<h2>All parameters against accuracy</h2>", html)
+        self.assertEqual(html.count('<polyline class="pc-line'), 4)
+        self.assertIn('<polyline class="pc-line best"', html)
+        self.assertNotIn("All parameters against", render_html(collect(self.store, "ridge")))
+
     def test_no_notes_section_without_notes(self):
         data = collect(self.store, "ridge")
         self.assertEqual(data.notes, ())

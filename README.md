@@ -223,7 +223,10 @@ draws listed with their errors, exit code 1 if any failed.
 The dashboard's experiment page (`/experiment/<id>`, linked from the run list and run pages)
 plots one parameter against one metric for the experiment's completed runs and highlights the
 best run. Pick the parameter and metric with the form; positive values spanning three orders of
-magnitude get a log axis (a zero is kept), and text parameters get one slot per value.
+magnitude get a log axis (a zero is kept), and text parameters get one slot per value. When two or
+more parameters vary, a parallel-coordinates chart below it draws one line per run across up to five
+parameters and the metric, with the best run highlighted; the same chart is in `report` files.
+Experiment notes (`note --experiment`) are listed above the charts.
 
 ## Reports
 

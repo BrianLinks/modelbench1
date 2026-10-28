@@ -16,12 +16,15 @@ from unittest import mock
 from modelbench import dashboard
 from modelbench.config import ExperimentConfig
 from modelbench.dashboard import (
+    _unit_scale,
     bar_chart,
     handle,
     is_allowed_host,
     is_loopback_host,
     line_chart,
     make_server,
+    parallel_chart,
+    parallel_section,
     scatter_chart,
     serve,
 )
@@ -529,6 +532,128 @@ class ScatterChartTests(unittest.TestCase):
         self.assertIn("&lt;script&gt;", svg)
 
 
+class UnitScaleTests(unittest.TestCase):
+    def test_a_linear_range_maps_to_zero_and_one(self):
+        unit, log = _unit_scale([2.0, 4.0, 6.0])
+        self.assertFalse(log)
+        self.assertEqual([unit(v) for v in (2.0, 3.0, 6.0)], [0.0, 0.25, 1.0])
+
+    def test_equal_values_sit_in_the_middle(self):
+        unit, _ = _unit_scale([7.0, 7.0])
+        self.assertEqual(unit(7.0), 0.5)
+
+    def test_a_wide_range_is_logarithmic_and_keeps_zero(self):
+        unit, log = _unit_scale([0.0, 1.0, 1000.0])
+        self.assertTrue(log)
+        self.assertEqual((unit(0.0), unit(1000.0)), (0.0, 1.0))
+        self.assertAlmostEqual(unit(1.0), math.log10(2) / math.log10(1001))
+
+    def test_ranges_that_are_narrow_or_negative_stay_linear(self):
+        self.assertFalse(_unit_scale([1.0, 999.0])[1])
+        self.assertTrue(_unit_scale([1.0, 1000.0])[1])
+        self.assertFalse(_unit_scale([-1.0, 0.001, 5000.0])[1])  # a negative never gets a log scale
+        self.assertFalse(_unit_scale([0.0, 0.0])[1])
+
+
+class ParallelChartTests(unittest.TestCase):
+    def lines(self, svg):
+        return re.findall(r'<polyline class="([^"]*)" points="([^"]*)"><title>([^<]*)</title>', svg)
+
+    def test_numeric_axes_by_hand(self):
+        # plot area: x from 24 to 500, y from 260 (smallest) up to 40 (largest)
+        svg = parallel_chart("t", ["p", "m"], [("a", [0, 1.0]), ("b", [10, 0.0])])
+        self.assertEqual(
+            self.lines(svg),
+            [
+                ("pc-line", "24.0,260.0 500.0,40.0", "a"),
+                ("pc-line", "24.0,40.0 500.0,260.0", "b"),
+            ],
+        )
+        self.assertIn(">10<", svg)
+        self.assertIn(">0<", svg)
+
+    def test_text_axes_have_one_sorted_slot_per_value(self):
+        svg = parallel_chart("t", ["w", "m"], [("a", ["y", 0.0]), ("b", ["x", 1.0])])
+        # two slots: x at 205, y at 95 (slot centres at 0.25 and 0.75 of the height)
+        self.assertEqual(
+            [pts for _, pts, _ in self.lines(svg)],
+            ["24.0,95.0 500.0,260.0", "24.0,205.0 500.0,40.0"],
+        )
+        self.assertIn(">x<", svg)
+        self.assertIn(">y<", svg)
+
+    def test_a_missing_value_splits_the_line_and_a_lone_point_is_still_drawn(self):
+        rows = [("a", [1, None, 3]), ("b", [1, 2, None]), ("c", [None, None, 5])]
+        svg = parallel_chart("t", ["p", "q", "r"], rows)
+        self.assertEqual([t for _, _, t in self.lines(svg)], ["b"])  # only b has two neighbours
+        self.assertEqual(svg.count("<circle"), 3)  # a's two ends and c's single value
+
+    def test_the_best_row_is_drawn_last_and_highlighted(self):
+        rows = [("a", [0, 0.0]), ("b", [1, 1.0]), ("c", [2, 2.0])]
+        svg = parallel_chart("t", ["p", "m"], rows, best=0)
+        self.assertEqual(
+            [(c, t) for c, _, t in self.lines(svg)],
+            [("pc-line", "b"), ("pc-line", "c"), ("pc-line best", "a")],
+        )
+        plain = parallel_chart("t", ["p", "m"], rows)
+        self.assertEqual([t for _, _, t in self.lines(plain)], ["a", "b", "c"])
+        self.assertNotIn("best", plain)
+
+    def test_a_best_row_with_one_value_gets_a_highlighted_dot(self):
+        svg = parallel_chart("t", ["p", "m"], [("a", [1, 1.0]), ("b", [None, 2.0])], best=1)
+        self.assertIn('<circle class="dot best"', svg)
+
+    def test_too_little_to_draw(self):
+        self.assertEqual(parallel_chart("t", ["p"], [("a", [1])]), "")
+        self.assertEqual(parallel_chart("t", ["p", "m"], []), "")
+
+    def test_a_wide_numeric_axis_uses_the_log_scale(self):
+        rows = [("a", [0, 0.0]), ("b", [1, 0.0]), ("c", [1000, 1.0])]
+        pts = [p for _, p, _ in self.lines(parallel_chart("t", ["l2", "m"], rows))]
+        expected = 260 - math.log10(2) / math.log10(1001) * 220
+        self.assertEqual(pts[0].split()[0], "24.0,260.0")
+        self.assertAlmostEqual(float(pts[1].split()[0].split(",")[1]), expected, places=1)
+
+    def test_text_from_runs_is_escaped_and_nothing_is_nan(self):
+        svg = parallel_chart(XSS, [XSS, "m"], [(XSS, [XSS, 1.0]), ("b", ["ok", 1.0])])
+        self.assertNotIn("<script>", svg)
+        self.assertIn("&lt;script&gt;", svg)
+        flat = parallel_chart("t", ["p", "m"], [("a", [1, 1.0]), ("b", [1, 1.0])])
+        self.assertNotIn("nan", flat.lower())
+
+
+class ParallelSectionTests(unittest.TestCase):
+    entries = [
+        ("run-1", {"k": 1, "w": "u"}, 0.5),
+        ("run-2", {"k": 3, "w": "d"}, 0.9),
+        ("run-3", {"k": 5}, 0.7),
+    ]
+
+    def test_two_varying_parameters_and_the_metric_make_three_axes(self):
+        html = parallel_section("accuracy", ["k", "w"], self.entries, "run-2")
+        self.assertIn("<h2>All parameters against accuracy</h2>", html)
+        for name in (">k<", ">w<", ">accuracy<"):
+            self.assertIn(name, html)
+        self.assertRegex(html, r'class="pc-line best" points="[^"]*"><title>run-2</title>')
+
+    def test_one_varying_parameter_is_left_to_its_scatter_chart(self):
+        self.assertEqual(parallel_section("accuracy", ["k"], self.entries, None), "")
+        self.assertEqual(parallel_section("accuracy", ["k", "w"], [], None), "")
+
+    def test_at_most_five_parameters_are_drawn(self):
+        names = [f"p{i}" for i in range(8)]
+        entries = [
+            ("r1", {n: i for i, n in enumerate(names)}, 1.0),
+            ("r2", {n: 9 for n in names}, 2.0),
+        ]
+        html = parallel_section("m", names, entries, None)
+        self.assertIn(">p4<", html)
+        self.assertNotIn(">p5<", html)
+
+    def test_an_unknown_best_run_highlights_nothing(self):
+        self.assertNotIn("best", parallel_section("m", ["k", "w"], self.entries, "nope"))
+
+
 class ExperimentPageTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -547,6 +672,11 @@ class ExperimentPageTests(unittest.TestCase):
             )
             lone = config(experiment_id="lone", params={"k": 3})
             run_experiment(store, lone, blobs(), "label", environment=ENV)
+            two = config(experiment_id="two", params={})
+            run_sweep(  # run-000007 to run-000010
+                store, two, {"k": [1, 3], "weights": ["uniform", "distance"]}, blobs(), "label",
+                environment=ENV,
+            )  # fmt: skip
 
     def get(self, target):
         return handle(self.db, target, "localhost:8765", True)
@@ -625,6 +755,20 @@ class ExperimentPageTests(unittest.TestCase):
         self.assertNotIn(XSS, body)
         self.assertIn("&lt;script&gt;", body)
         self.assertNotIn("<h2>Notes</h2>", self.get("/experiment/knn-w").body)
+
+    def test_two_varying_parameters_add_a_parallel_coordinates_chart(self):
+        body = self.get("/experiment/two").body
+        self.assertIn("<h2>All parameters against accuracy</h2>", body)
+        self.assertEqual(body.count('class="pc-line best"'), 1)
+        self.assertEqual(body.count('<polyline class="pc-line'), 4)  # one line per run
+        # all four tie at 1.0, so the earliest run (k=1, uniform) is the best
+        self.assertRegex(body, r'class="pc-line best" points="[^"]*"><title>run-000007</title>')
+        for name in (">k<", ">weights<", ">accuracy<"):
+            self.assertIn(name, body)
+
+    def test_one_varying_parameter_has_no_parallel_chart(self):
+        self.assertNotIn("All parameters against", self.get("/experiment/ridge").body)
+        self.assertNotIn("<polyline", self.get("/experiment/lone").body)
 
     def test_the_page_carries_no_script(self):
         body = self.get("/experiment/ridge").body

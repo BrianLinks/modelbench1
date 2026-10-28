@@ -20,7 +20,7 @@ import math
 import os
 import socket
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -158,6 +158,28 @@ def _shorten(text: str, limit: int = 14) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "\u2026"
 
 
+def _unit_scale(values: Sequence[float]) -> tuple[Callable[[float], float], bool]:
+    """A function mapping a value to a position between 0 and 1, and whether it is logarithmic.
+
+    A wide range of non-negative values (largest over smallest positive at least 1000) gets a log
+    scale; a zero is kept by shifting it to log10(1 + x / smallest positive value), which maps
+    zero to zero. When every value is equal they all sit in the middle.
+    """
+    positive = [v for v in values if v > 0]
+    smallest = min(positive) if positive else 0.0
+    log = min(values) >= 0 and bool(positive) and max(values) / smallest >= 1000
+
+    def scale(v: float) -> float:
+        return math.log10(1 + v / smallest) if log else v
+
+    lo, hi = scale(min(values)), scale(max(values))
+
+    def unit(v: float) -> float:
+        return (scale(v) - lo) / (hi - lo) if hi > lo else 0.5
+
+    return unit, log
+
+
 def scatter_chart(
     title: str,
     points: Sequence[tuple[Any, float, str]],
@@ -184,20 +206,10 @@ def scatter_chart(
     ticks: list[tuple[float, str]]
     if all(_is_number(x) for x, _, _ in points):
         xs = [float(x) for x, _, _ in points]
-        positive = [x for x in xs if x > 0]
-        smallest = min(positive) if positive else 0.0
-        # A wide range of non-negative values gets a log scale; a zero is kept by shifting the
-        # scale to log10(1 + x / smallest positive value), which maps zero to zero.
-        log = min(xs) >= 0 and bool(positive) and max(xs) / smallest >= 1000
-
-        def scale(x: float) -> float:
-            return math.log10(1 + x / smallest) if log else x
-
-        lo, hi = scale(min(xs)), scale(max(xs))
+        unit, log = _unit_scale(xs)
 
         def px(x: Any) -> float:
-            share = (scale(float(x)) - lo) / (hi - lo) if hi > lo else 0.5
-            return left + share * plot_w
+            return left + unit(float(x)) * plot_w
 
         distinct = sorted(set(xs))
         shown = distinct if len(distinct) <= 8 else [distinct[0], distinct[-1]]
@@ -232,6 +244,120 @@ def scatter_chart(
         f'<text class="axis" x="{left + plot_w / 2:.1f}" y="{height - 6}" text-anchor="middle">'
         f"{esc(axis_name)}</text></svg>"
     )
+
+
+def parallel_chart(
+    title: str,
+    axes: Sequence[str],
+    rows: Sequence[tuple[str, Sequence[Any]]],
+    best: int | None = None,
+    width: int = 560,
+) -> str:
+    """Parallel coordinates: one vertical axis per name, one line per `(label, values)` row.
+
+    `values` has one entry per axis, `None` where a row has no value. An axis is numeric when its
+    values are all numbers (log scale as in `scatter_chart`) and has one slot per distinct value
+    otherwise. The row at index `best` is drawn last and highlighted.
+    """
+    if len(axes) < 2 or not rows:
+        return ""
+    height, left, right, top, bottom = 280, 24, 60, 40, 20
+    plot_w, plot_h = width - left - right, height - top - bottom
+
+    def place(index: int) -> tuple[Callable[[Any], float], list[tuple[float, str]]]:
+        """The y position of a value on axis `index` and the labelled positions on it."""
+        present = [values[index] for _, values in rows if values[index] is not None]
+        if present and all(_is_number(v) for v in present):
+            numbers = [float(v) for v in present]
+            unit, _ = _unit_scale(numbers)
+            labels = sorted({min(numbers), max(numbers)})
+            return (
+                lambda v: top + (1 - unit(float(v))) * plot_h,
+                [(top + (1 - unit(v)) * plot_h, f"{v:g}") for v in labels],
+            )
+        names = sorted({str(v) for v in present})
+        return (
+            lambda v: top + (1 - (names.index(str(v)) + 0.5) / len(names)) * plot_h,
+            [
+                (top + (1 - (i + 0.5) / len(names)) * plot_h, _shorten(n, 9))
+                for i, n in enumerate(names)
+            ],
+        )
+
+    places = [place(i) for i in range(len(axes))]
+    xs = [left + i / (len(axes) - 1) * plot_w for i in range(len(axes))]
+    parts = [
+        f'<svg class="chart" viewBox="0 0 {width} {height}" width="{width}" role="img" '
+        f'aria-label="{esc(title)}"><title>{esc(title)}</title>'
+    ]
+    for x in xs:
+        parts.append(
+            f'<line class="zero" x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{height - bottom}"/>'
+        )
+    order = [i for i in range(len(rows)) if i != best] + ([best] if best is not None else [])
+    for index in order:
+        label, values = rows[index]
+        css = "pc-line best" if index == best else "pc-line"
+        segment: list[str] = []
+        segments: list[list[str]] = []
+        for i, value in enumerate(values):
+            if value is None:
+                if segment:
+                    segments.append(segment)
+                segment = []
+                continue
+            segment.append(f"{xs[i]:.1f},{places[i][0](value):.1f}")
+        if segment:
+            segments.append(segment)
+        for points in segments:
+            if len(points) > 1:
+                parts.append(
+                    f'<polyline class="{css}" points="{" ".join(points)}">'
+                    f"<title>{esc(label)}</title></polyline>"
+                )
+            else:
+                cx, cy = points[0].split(",")
+                kind = "dot best" if index == best else "dot"
+                parts.append(
+                    f'<circle class="{kind}" cx="{cx}" cy="{cy}" r="3">'
+                    f"<title>{esc(label)}</title></circle>"
+                )
+    for i, name in enumerate(axes):  # labels last, so lines never hide them
+        parts.append(
+            f'<text class="axis" x="{xs[i]:.1f}" y="{top - 14}" text-anchor="middle">'
+            f"{esc(_shorten(name))}</text>"
+        )
+        for y, text in places[i][1]:
+            parts.append(
+                f'<text class="axis" x="{xs[i] + 4:.1f}" y="{y + 4:.1f}">{esc(text)}</text>'
+            )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+MAX_PARALLEL_PARAMS = 5
+
+
+def parallel_section(
+    metric: str,
+    varying: Sequence[str],
+    entries: Sequence[tuple[str, dict[str, Any], float]],
+    best_id: str | None,
+) -> str:
+    """A heading and a parallel-coordinates chart of the varying parameters against `metric`.
+
+    `entries` are `(run id, parameters, metric value)`. Nothing is drawn unless at least two
+    parameters vary, because one parameter is already shown by its own scatter chart. A parameter
+    a run does not have is left out of that run's line (so a stored null reads as missing).
+    """
+    if len(varying) < 2 or not entries:
+        return ""
+    names = list(varying[:MAX_PARALLEL_PARAMS])
+    rows = [(rid, [*(params.get(n) for n in names), value]) for rid, params, value in entries]
+    best = next((i for i, (rid, _, _) in enumerate(entries) if rid == best_id), None)
+    heading = f"All parameters against {metric}"
+    chart = parallel_chart(heading, [*names, metric], rows, best)
+    return f"<h2>{esc(heading)}</h2>{chart}"
 
 
 def confusion_heatmap(cm: ConfusionMatrix, title: str = "Confusion matrix") -> str:
@@ -299,6 +425,8 @@ table+table,p+table{margin-top:1em}form{margin:.6em 0 1em}
 .chart{max-width:100%;height:auto}.bar,.dot{fill:var(--bar)}
 .line{fill:none;stroke:var(--bar);stroke-width:2}.zero{stroke:var(--muted);stroke-width:1}
 .dot.best{fill:var(--ok);stroke:var(--fg)}
+.pc-line{fill:none;stroke:var(--bar);stroke-opacity:.45;stroke-width:1.5}
+.pc-line.best{stroke:var(--ok);stroke-opacity:1;stroke-width:3}
 .axis{fill:var(--muted);font-size:12px}
 .cell{fill:var(--bar);stroke:var(--line)}.count{fill:var(--fg);font-size:13px}
 pre{white-space:pre-wrap;word-break:break-word;margin:0}
@@ -649,6 +777,8 @@ def render_experiment(store: Store, experiment_id: str, query: dict[str, list[st
         body.append(scatter_chart(heading, points, param, best_index))
         if best_index is not None:
             body.append('<p class="muted">The highlighted dot is the best run for this metric.</p>')
+        entries = [(r.run_id, params[r.run_id], metrics[r.run_id][metric]) for r in scored]
+        body.append(parallel_section(metric, varying, entries, best_id))
     rows = "".join(
         f'<tr><td><a href="/run/{esc(r.run_id)}">{esc(r.run_id)}</a></td>'
         f"<td>{esc(' '.join(f'{k}={_param_text(v)}' for k, v in params[r.run_id].items()))}</td>"
