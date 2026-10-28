@@ -5,6 +5,8 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- A test that every import in the package is the standard library or the package itself, and that
+  no module refers to a paid service, so the standalone rule in ADR 7 is checked, not just stated.
 - Parallel-coordinates chart on the dashboard's experiment page and in reports, for experiments
   where two or more parameters vary: one line per run, the best run highlighted.
 - Dataset manifests (`dataset --manifest`): row count, version hash, per-column kind, missing
