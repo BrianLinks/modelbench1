@@ -238,6 +238,52 @@ class RejectionTests(StoreCase):
         change(doc)
         return doc
 
+    def test_the_dry_run_rejects_exactly_what_the_real_import_rejects(self):
+        def bogus_start(d):
+            d["runs"][0]["started_at"] = "bogus"
+
+        def numeric_tag(d):
+            d["runs"][0]["tags"]["k"] = 5
+
+        def ends_first(d):
+            d["runs"][0]["finished_at"] = "2000-01-01T00:00:00Z"
+
+        def bad_metric_name(d):
+            d["runs"][0]["metrics"][0]["name"] = ""
+
+        for change in (bogus_start, numeric_tag, ends_first, bad_metric_name):
+            text = json.dumps(self.edit(change))
+            with self.assertRaises(ModelBenchError) as real:
+                import_runs_json(self.dest(), text)
+            with self.assertRaises(ModelBenchError) as dry:
+                import_runs_json(self.dest(), text, dry_run=True)
+            self.assertEqual(type(dry.exception), type(real.exception), change.__name__)
+            self.assertEqual(str(dry.exception), str(real.exception), change.__name__)
+
+    def test_a_dataset_version_must_match_its_content_hash(self):
+        def change(d):
+            d["runs"][0]["dataset"]["sha256"] = "0" * 64
+
+        doc = self.edit(change)
+        self.assertRejected(doc, RunImportError)
+        with self.assertRaisesRegex(RunImportError, "first 12 characters of sha256"):
+            import_runs_json(self.dest(), json.dumps(doc), dry_run=True)
+
+    def test_one_import_cannot_name_a_dataset_version_with_two_hashes(self):
+        def change(d):
+            twin = copy.deepcopy(d["runs"][0])
+            twin["run_id"] = "run-000099"
+            twin["dataset"]["sha256"] = twin["dataset"]["version"] + "0" * 52
+            d["runs"].append(twin)
+
+        doc = self.edit(change)
+        self.assertNotEqual(
+            doc["runs"][0]["dataset"]["sha256"], doc["runs"][-1]["dataset"]["sha256"]
+        )
+        self.assertRejected(doc, StoreError)
+        with self.assertRaisesRegex(StoreError, "two different content hashes"):
+            import_runs_json(self.dest(), json.dumps(doc), dry_run=True)
+
     def test_wrong_envelope(self):
         for change in (
             lambda d: d.update(format="other"),

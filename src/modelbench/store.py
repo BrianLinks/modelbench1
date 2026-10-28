@@ -673,7 +673,7 @@ class Store:
         artifacts, tags, and notes. Everything is validated before the first write, and a dataset
         version already registered with a different content hash is refused.
         """
-        checked = [self._check_imported(run) for run in runs]
+        checked = self.check_import(runs)
         ids: list[str] = []
         try:
             with self._conn:
@@ -682,6 +682,25 @@ class Store:
         except sqlite3.Error as exc:
             raise StoreError(f"import failed, nothing was stored: {exc}") from exc
         return ids
+
+    def check_import(self, runs: Sequence[ImportedRun]) -> list[bool]:
+        """Validate runs exactly as `import_runs` would, writing nothing.
+
+        Raises StoreError for the first problem. Besides each run on its own, the runs must agree
+        with each other: two runs naming the same dataset version must give the same content hash.
+        Returns, per run, whether its dataset still has to be registered.
+        """
+        hashes: dict[tuple[str, str], str] = {}
+        flags = []
+        for run in runs:
+            flags.append(self._check_imported(run))
+            key = (run.dataset.dataset_id, run.dataset.version)
+            if hashes.setdefault(key, run.dataset.sha256) != run.dataset.sha256:
+                raise StoreError(
+                    f"dataset {key[0]}@{key[1]} appears in this import with two different "
+                    "content hashes"
+                )
+        return flags
 
     def _check_imported(self, run: ImportedRun) -> bool:
         """Validate one run; return True if its dataset still has to be registered."""

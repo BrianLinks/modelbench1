@@ -103,6 +103,10 @@ def _parse_dataset(raw: object, where: str) -> DatasetVersion:
             or any(ch not in "0123456789abcdef" for ch in value)
         ):
             raise RunImportError(f"{where}.{field_name} must be {size} lowercase hex characters")
+    if sha[: len(version)] != version:
+        raise RunImportError(
+            f"{where}.version must be the first {len(version)} characters of sha256"
+        )
     try:
         validate_id("dataset", data["dataset_id"])
     except IdentifierError as exc:
@@ -252,6 +256,7 @@ def import_runs_json(store: Store, text: str, *, dry_run: bool = False) -> Impor
         else:
             imported.append((source, run))
     if dry_run:
+        store.check_import([run for _, run in imported])  # the same checks a real import makes
         return ImportReport(tuple((source, "") for source, _ in imported), tuple(skipped))
     new_ids = store.import_runs([run for _, run in imported]) if imported else []
     return ImportReport(
