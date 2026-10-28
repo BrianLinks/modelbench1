@@ -617,7 +617,14 @@ def render_experiment(store: Store, experiment_id: str, query: dict[str, list[st
             f"{''.join(option(n, metric) for n in metric_names)}</select></label> "
             "<button>Plot</button></form>"
         )
-    body = [f"<h1>{esc(title)}</h1>", f"<p>{len(runs)} completed run(s).</p>", form]
+    body = [f"<h1>{esc(title)}</h1>", f"<p>{len(runs)} completed run(s).</p>"]
+    notes = store.get_experiment_notes(experiment_id)
+    if notes:
+        items = "".join(
+            f'<p><span class="muted">{esc(n.created_at)}</span> {esc(n.text)}</p>' for n in notes
+        )
+        body.append(f"<h2>Notes</h2>{items}")
+    body.append(form)
 
     scored = [r for r in runs if metric in metrics[r.run_id]]
     try:

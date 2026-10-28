@@ -97,6 +97,15 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX idx_notes_run ON notes(run_id);
     """,
+    """
+    CREATE TABLE experiment_notes (
+        seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+        experiment_id TEXT NOT NULL REFERENCES experiments(experiment_id) ON DELETE CASCADE,
+        created_at    TEXT NOT NULL,
+        text          TEXT NOT NULL
+    );
+    CREATE INDEX idx_experiment_notes_experiment ON experiment_notes(experiment_id);
+    """,
 ]
 
 STATUSES = ("running", "completed", "failed")
@@ -602,6 +611,37 @@ class Store:
         self._run_row(run_id)
         rows = self._conn.execute(
             "SELECT created_at, text FROM notes WHERE run_id = ? ORDER BY seq", (run_id,)
+        )
+        return [NoteRecord(r["created_at"], r["text"]) for r in rows]
+
+    def _experiment_exists(self, experiment_id: str) -> None:
+        validate_id("experiment", experiment_id)
+        row = self._conn.execute(
+            "SELECT 1 FROM experiments WHERE experiment_id = ?", (experiment_id,)
+        ).fetchone()
+        if row is None:
+            raise StoreError(f"no experiment {experiment_id}")
+
+    def add_experiment_note(self, experiment_id: str, text: str) -> None:
+        """Attach a free-text note to an experiment, which exists once it has a run.
+
+        Experiment notes are append-only, like run notes, and say something about the whole
+        group of runs (why the experiment exists, what was concluded).
+        """
+        self._experiment_exists(experiment_id)
+        _check_note(text)
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO experiment_notes (experiment_id, created_at, text) VALUES (?, ?, ?)",
+                (experiment_id, self._clock(), text),
+            )
+
+    def get_experiment_notes(self, experiment_id: str) -> list[NoteRecord]:
+        """An experiment's notes in the order they were added."""
+        self._experiment_exists(experiment_id)
+        rows = self._conn.execute(
+            "SELECT created_at, text FROM experiment_notes WHERE experiment_id = ? ORDER BY seq",
+            (experiment_id,),
         )
         return [NoteRecord(r["created_at"], r["text"]) for r in rows]
 

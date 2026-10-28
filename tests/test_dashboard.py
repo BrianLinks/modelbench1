@@ -615,6 +615,17 @@ class ExperimentPageTests(unittest.TestCase):
         self.assertIn('<a href="/experiment/ridge">ridge</a>', self.get("/").body)
         self.assertIn('<a href="/experiment/ridge">ridge</a>', self.get("/run/run-000001").body)
 
+    def test_experiment_notes_are_shown_in_order_and_escaped(self):
+        with Store(self.db) as store:
+            store.add_experiment_note("ridge", f"first {XSS}")
+            store.add_experiment_note("ridge", "second")
+        body = self.get("/experiment/ridge").body
+        self.assertIn("<h2>Notes</h2>", body)
+        self.assertLess(body.index("first"), body.index("second"))
+        self.assertNotIn(XSS, body)
+        self.assertIn("&lt;script&gt;", body)
+        self.assertNotIn("<h2>Notes</h2>", self.get("/experiment/knn-w").body)
+
     def test_the_page_carries_no_script(self):
         body = self.get("/experiment/ridge").body
         self.assertNotIn("<script", body)

@@ -134,6 +134,25 @@ class HtmlTests(ReportTestCase):
         self.assertEqual(render_html(data), render_html(collect(self.store, "ridge")))
         self.assertEqual(render_markdown(data), render_markdown(collect(self.store, "ridge")))
 
+    def test_experiment_notes_appear_in_both_formats_and_are_escaped(self):
+        self.store.add_experiment_note("ridge", f"first | pipe {XSS}")
+        self.store.add_experiment_note("ridge", "second")
+        data = collect(self.store, "ridge")
+        self.assertEqual([t for _, t in data.notes], [f"first | pipe {XSS}", "second"])
+        html = render_html(data)
+        self.assertIn("<h2>Notes</h2>", html)
+        self.assertNotIn(XSS, html)
+        self.assertLess(html.index("first"), html.index("second"))
+        md = render_markdown(data)
+        self.assertIn("## Notes", md)
+        self.assertIn("first \\| pipe", md)  # the pipe is escaped for tables
+
+    def test_no_notes_section_without_notes(self):
+        data = collect(self.store, "ridge")
+        self.assertEqual(data.notes, ())
+        self.assertNotIn("<h2>Notes</h2>", render_html(data))
+        self.assertNotIn("## Notes", render_markdown(data))
+
     def test_a_classification_report_draws_the_confusion_matrix_and_escapes_notes(self):
         config = ExperimentConfig("knn", "knn", 7, "blobs", ("accuracy",), {"k": 3})
         result = run_experiment(self.store, config, blobs(), "label", environment=ENV)

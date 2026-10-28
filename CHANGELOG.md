@@ -5,6 +5,9 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- Experiment notes (`note --experiment`, schema migration 3): free text about a whole experiment,
+  shown on the dashboard's experiment page and in the report. They stay in the database and are
+  not part of the export format.
 - `examples/`: ready-made config, sweep, search and cross-validation files, run end to end by
   the test suite.
 - A frozen export file (`tests/golden/export_v1.json`) that the export must match byte for byte

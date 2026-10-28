@@ -2,7 +2,7 @@
 
 ModelBench keeps everything in one SQLite file (default `modelbench.db`). The schema version is
 stored in SQLite's `PRAGMA user_version` and equals the number of entries in
-`store.MIGRATIONS` (currently 2). Opening a database writable applies any missing migration, each
+`store.MIGRATIONS` (currently 3). Opening a database writable applies any missing migration, each
 inside its own transaction; the read-only dashboard refuses a database at an older version
 instead of upgrading it. Foreign keys are enforced (`PRAGMA foreign_keys = ON`).
 
@@ -118,6 +118,17 @@ Text notes attached to a run, allowed in any run status (added in migration 2).
 | created_at | TEXT | no | UTC timestamp |
 | text | TEXT | no | the note, at most 10000 characters |
 
+### experiment_notes
+
+Text notes attached to an experiment, which exists once it has a run (added in migration 3).
+
+| column | type | null | meaning |
+|---|---|---|---|
+| seq | INTEGER | yes | autoincrement primary key; notes are listed in this order |
+| experiment_id | TEXT | no | references `experiments`, deleted with the experiment |
+| created_at | TEXT | no | UTC timestamp |
+| text | TEXT | no | the note, at most 10000 characters |
+
 ## Indexes
 
 | index | on | used for |
@@ -125,6 +136,7 @@ Text notes attached to a run, allowed in any run status (added in migration 2).
 | idx_runs_experiment | runs(experiment_id) | listing an experiment's runs |
 | idx_runs_config | runs(config_hash) | finding earlier runs with identical settings (`--reuse`, sweeps) |
 | idx_notes_run | notes(run_id) | reading a run's notes |
+| idx_experiment_notes_experiment | experiment_notes(experiment_id) | reading an experiment's notes |
 
 ## Changing the schema
 

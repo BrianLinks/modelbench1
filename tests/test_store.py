@@ -459,6 +459,7 @@ class NoteTests(StoreTestCase):
         # Rewind to version 1 with data in every older table, then upgrade again.
         conn = sqlite3.connect(old)
         conn.execute("DROP TABLE notes")
+        conn.execute("DROP TABLE experiment_notes")
         conn.execute("PRAGMA user_version = 1")
         conn.commit()
         conn.close()
@@ -469,6 +470,7 @@ class NoteTests(StoreTestCase):
             store.add_artifact(run_id, "weights", "model", SHA, 3)
         conn = sqlite3.connect(old)
         conn.execute("DROP TABLE notes")
+        conn.execute("DROP TABLE experiment_notes")
         conn.execute("PRAGMA user_version = 1")
         conn.commit()
         conn.close()
@@ -479,6 +481,68 @@ class NoteTests(StoreTestCase):
             self.assertEqual(len(store.get_artifacts(run_id)), 1)
             store.add_note(run_id, "works after upgrade")
             self.assertEqual([n.text for n in store.get_notes(run_id)], ["works after upgrade"])
+
+
+class ExperimentNoteTests(StoreTestCase):
+    def test_notes_keep_order_and_timestamps(self):
+        self.new_run()  # makes experiment "exp-a"
+        self.store.add_experiment_note("exp-a", "why this exists")
+        self.store.add_experiment_note("exp-a", "second\nline")
+        notes = self.store.get_experiment_notes("exp-a")
+        self.assertEqual([n.text for n in notes], ["why this exists", "second\nline"])
+        self.assertEqual(notes[0].created_at, "2026-01-01T00:00:00Z")
+
+    def test_each_experiment_has_its_own_notes_apart_from_run_notes(self):
+        first = self.new_run()
+        self.store.create_run(make_config(experiment_id="exp-b"), DATASET, ENV)
+        self.store.add_experiment_note("exp-a", "about a")
+        self.store.add_note(first, "about the run")
+        self.assertEqual([n.text for n in self.store.get_experiment_notes("exp-a")], ["about a"])
+        self.assertEqual(self.store.get_experiment_notes("exp-b"), [])
+        self.assertEqual([n.text for n in self.store.get_notes(first)], ["about the run"])
+
+    def test_unknown_experiments_and_bad_text_are_refused(self):
+        self.new_run()
+        for call in (
+            lambda: self.store.add_experiment_note("nope", "x"),
+            lambda: self.store.get_experiment_notes("nope"),
+            lambda: self.store.add_experiment_note("exp-a", "   "),
+            lambda: self.store.add_experiment_note("exp-a", "x" * 10_001),
+            lambda: self.store.add_experiment_note("exp-a", 5),
+        ):
+            with self.assertRaises(StoreError):
+                call()
+        with self.assertRaises(IdentifierError):
+            self.store.get_experiment_notes("not valid!")
+        self.assertEqual(self.store.get_experiment_notes("exp-a"), [])
+
+    def test_a_database_made_by_0_2_0_is_upgraded_and_keeps_its_runs(self):
+        old = Path(self._tmp.name) / "v2.db"
+        conn = sqlite3.connect(old)
+        conn.executescript(f"BEGIN;{MIGRATIONS[0]}{MIGRATIONS[1]}PRAGMA user_version = 2;COMMIT;")
+        conn.close()
+        with Store(old, clock=lambda: "2026-01-01T00:00:00Z") as store:
+            run_id = store.create_run(make_config(), DATASET, ENV)
+            store.add_note(run_id, "old note")
+        conn = sqlite3.connect(old)
+        conn.execute("DROP TABLE experiment_notes")
+        conn.execute("PRAGMA user_version = 2")
+        conn.commit()
+        conn.close()
+        with Store(old) as store:
+            self.assertEqual(store.schema_version, 3)
+            self.assertEqual([n.text for n in store.get_notes(run_id)], ["old note"])
+            store.add_experiment_note("exp-a", "new")
+            self.assertEqual([n.text for n in store.get_experiment_notes("exp-a")], ["new"])
+
+    def test_a_read_only_store_reads_but_cannot_write_them(self):
+        self.new_run()
+        self.store.add_experiment_note("exp-a", "kept")
+        reader = Store(self.path, read_only=True)
+        self.addCleanup(reader.close)
+        self.assertEqual([n.text for n in reader.get_experiment_notes("exp-a")], ["kept"])
+        with self.assertRaises(sqlite3.OperationalError):  # SQLite itself refuses the write
+            reader.add_experiment_note("exp-a", "refused")
 
 
 class ReadOnlyTests(StoreTestCase):

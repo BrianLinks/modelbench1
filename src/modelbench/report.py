@@ -60,6 +60,7 @@ class ReportData:
     metric_names: tuple[str, ...]
     varying: tuple[str, ...]  # parameters whose value differs between runs
     best: BestRun | None
+    notes: tuple[tuple[str, str], ...] = ()  # the experiment's own notes (time, text)
 
 
 def _param_text(value: Any) -> str:
@@ -123,7 +124,8 @@ def collect(store: Store, experiment_id: str, metric: str | None = None) -> Repo
             tuple((n.created_at, n.text) for n in store.get_notes(record.run_id)),
         )
     failed = len(store.list_runs(experiment_id, "failed", MAX_RUNS))
-    return ReportData(experiment_id, chosen, high, ranked, failed, names, varying, best)
+    notes = tuple((n.created_at, n.text) for n in store.get_experiment_notes(experiment_id))
+    return ReportData(experiment_id, chosen, high, ranked, failed, names, varying, best, notes)
 
 
 def _header_line(data: ReportData) -> str:
@@ -143,6 +145,12 @@ def _params_text(run: ReportRun) -> str:
 def render_html(data: ReportData) -> str:
     title = f"Experiment {data.experiment_id}"
     body = [f"<h1>{esc(title)}</h1>", f'<p class="muted">{esc(_header_line(data))}</p>']
+    if data.notes:
+        items = "".join(
+            f'<p><span class="muted">{esc(created)}</span> {esc(text)}</p>'
+            for created, text in data.notes
+        )
+        body.append(f"<h2>Notes</h2>{items}")
     head = "".join(f"<th>{esc(n)}</th>" for n in data.metric_names)
     rows = []
     for position, run in enumerate(data.runs, start=1):
@@ -236,6 +244,10 @@ def _md(text: object) -> str:
 
 def render_markdown(data: ReportData) -> str:
     lines = [f"# Experiment {_md(data.experiment_id)}", "", _md(_header_line(data)), ""]
+    if data.notes:
+        lines += ["## Notes", ""]
+        lines += [f"- {_md(created)}: {_md(text)}" for created, text in data.notes]
+        lines.append("")
     header = ["#", "Run", "Model", "Params", *data.metric_names]
     lines.append("| " + " | ".join(_md(h) for h in header) + " |")
     lines.append("|" + "|".join(["---"] * len(header)) + "|")

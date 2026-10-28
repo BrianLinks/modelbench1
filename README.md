@@ -125,7 +125,7 @@ modelbench [--db runs.db] <command> ...
 | `show RUN` | one run in full: config, metrics, tags, files, notes |
 | `compare RUN RUN ...` | the first run is the baseline (`--metrics a,b`) |
 | `repro RUN --data F.csv --label COL` | re-run and check it reproduces (`--tolerance`) |
-| `note RUN TEXT` | attach a note |
+| `note RUN TEXT` | attach a note to a run; `note --experiment EXP TEXT` attaches one to a whole experiment |
 | `export RUN ... ` | JSON, or `--format csv`; `-o FILE` writes atomically |
 | `import FILE.json` | add runs from a JSON export (`--dry-run`, `--json`); creates the database if needed |
 | `sample NAME` | write a seeded synthetic dataset as CSV (`--seed`, `-o FILE`, size and noise options) |
@@ -411,6 +411,7 @@ other. Regression runs have none.
 from modelbench.export import export_json, export_metrics_csv, write_text_atomic
 
 store.add_note(run_id, "baseline for the k sweep")  # allowed in any run status
+store.add_experiment_note("exp-a", "why this experiment exists")  # once it has a run
 write_text_atomic("runs.json", export_json(store, [run_id]))
 export_metrics_csv(store, [run_id])
 # run_id,experiment_id,metric,step,value

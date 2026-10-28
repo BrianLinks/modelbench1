@@ -475,8 +475,12 @@ def cmd_learning_curve(args: argparse.Namespace) -> int:
 
 def cmd_note(args: argparse.Namespace) -> int:
     with _open_existing(args.db) as store:
-        store.add_note(args.run_id, args.text)
-    print(f"added a note to {args.run_id}")
+        if args.experiment:
+            store.add_experiment_note(args.target, args.text)
+            print(f"added a note to experiment {args.target}")
+        else:
+            store.add_note(args.target, args.text)
+            print(f"added a note to {args.target}")
     return 0
 
 
@@ -697,9 +701,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--metric", help="metric to score (default: the config's first)")
     p.add_argument("--fractions", help="comma-separated, increasing (default 0.2,0.4,0.6,0.8,1)")
 
-    p = add("note", cmd_note, "attach a note to a run")
-    p.add_argument("run_id")
+    p = add("note", cmd_note, "attach a note to a run, or to an experiment with --experiment")
+    p.add_argument("target", help="a run id, or an experiment id with --experiment")
     p.add_argument("text")
+    p.add_argument("--experiment", action="store_true", help="the target is an experiment id")
 
     p = add("import", cmd_import, "import runs from a JSON export", True)
     p.add_argument("file")

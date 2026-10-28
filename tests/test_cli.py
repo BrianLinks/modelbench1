@@ -267,6 +267,19 @@ class ReproNoteExportRecoverTests(CliTestCase):
         self.assertEqual(code, 2)
         self.assertIn("note", err)
 
+    def test_note_command_for_an_experiment(self):
+        self.run_experiment()
+        code, out, _ = self.cli("note", "--experiment", "exp-a", "the baseline sweep")
+        self.assertEqual((code, out), (0, "added a note to experiment exp-a\n"))
+        code, _, err = self.cli("note", "--experiment", "nope", "x")
+        self.assertEqual(code, 2)
+        self.assertIn("no experiment nope", err)
+        code, _, err = self.cli("note", "exp-a", "x")  # an experiment id is not a run id
+        self.assertEqual(code, 2)
+        with Store(self.db, read_only=True) as store:
+            notes = [n.text for n in store.get_experiment_notes("exp-a")]
+        self.assertEqual(notes, ["the baseline sweep"])
+
     def test_export_json_to_stdout_and_file(self):
         self.run_experiment()
         code, out, _ = self.cli("export", "run-000001")
