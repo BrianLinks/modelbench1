@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "modelbench"
-version = "0.3.0"
+version = "0.3.1"
 description = "Local experiment tracking and model comparison without an online ML platform"
 readme = "README.md"
 requires-python = ">=3.10"

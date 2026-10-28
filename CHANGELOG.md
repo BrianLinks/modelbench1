@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-28
+
 ### Fixed
 - `--reuse` and sweeps no longer return a stored run that used different feature columns: runs now
   record a `columns_sha256` tag (label column plus ordered feature columns) and reuse needs it to
