@@ -9,6 +9,7 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.seeding`: SHA-256 derived sub-seeds and global seeding
 - `modelbench.environment`: environment fingerprints and drift comparison
 - `modelbench.datasets`: content-hash dataset versions, CSV reading, seeded and stratified splits
+- `modelbench.manifest`: a deterministic per-column summary of a dataset (`dataset --manifest`)
 - `modelbench.config`: validated experiment configs, config hashes, parameter grids
 - `modelbench.store`: SQLite run store (datasets, runs, params, metric series, artifact metadata,
   tags) with migrations and a strict run lifecycle
@@ -132,7 +133,7 @@ modelbench [--db runs.db] <command> ...
 | `demo` | run every model on three sample datasets and record the runs (`--seed`, `--rows-per-class`) |
 | `serve` | read-only dashboard at http://127.0.0.1:8765/ (`--port`, `--host`, `--allow-network`) |
 | `recover --older-than SECONDS` | mark long-running unfinished runs as failed |
-| `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version |
+| `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version; `--manifest` prints a per-column summary as JSON instead (`-o FILE` writes it) |
 | `models` | list the available models |
 
 `run`, `sweep`, `search`, `importance`, `learning-curve`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
@@ -411,7 +412,7 @@ other. Regression runs have none.
 from modelbench.export import export_json, export_metrics_csv, write_text_atomic
 
 store.add_note(run_id, "baseline for the k sweep")  # allowed in any run status
-store.add_experiment_note("exp-a", "why this experiment exists")  # once it has a run
+store.add_experiment_note("demo", "why this experiment exists")  # once it has a run
 write_text_atomic("runs.json", export_json(store, [run_id]))
 export_metrics_csv(store, [run_id])
 # run_id,experiment_id,metric,step,value

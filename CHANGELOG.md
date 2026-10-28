@@ -5,6 +5,8 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- Dataset manifests (`dataset --manifest`): row count, version hash, per-column kind, missing
+  cells, distinct values and statistics, and label counts, as canonical JSON.
 - Experiment notes (`note --experiment`, schema migration 3): free text about a whole experiment,
   shown on the dashboard's experiment page and in the report. They stay in the database and are
   not part of the export format.

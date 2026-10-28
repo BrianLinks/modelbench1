@@ -259,6 +259,36 @@ class ReproNoteExportRecoverTests(CliTestCase):
         self.assertEqual(code, 2)
         self.assertIn("tolerance", err)
 
+    def test_dataset_manifest_prints_deterministic_json(self):
+        code, out, err = self.cli(
+            "dataset", self.data, "--id", "blobs", "--label", "label", "--manifest", db=False
+        )
+        self.assertEqual((code, err), (0, ""))
+        manifest = json.loads(out)
+        self.assertEqual(manifest["format"], "modelbench-manifest")
+        self.assertEqual((manifest["n_rows"], manifest["labels"]), (40, {"a": 20, "b": 20}))
+        self.assertEqual([c["name"] for c in manifest["columns"]], ["x1", "x2", "label"])
+        self.assertEqual(manifest["columns"][1]["max"], 5.0)
+        again = self.cli(
+            "dataset", self.data, "--id", "blobs", "--label", "label", "--manifest", db=False
+        )
+        self.assertEqual(out, again[1])
+        info = json.loads(self.cli("dataset", self.data, "--id", "blobs", "--json", db=False)[1])
+        self.assertEqual(manifest["version"], info["version"])
+
+    def test_dataset_manifest_can_be_written_to_a_file(self):
+        target = self.dir / "manifest.json"
+        code, out, _ = self.cli(
+            "dataset", self.data, "--id", "blobs", "--manifest", "-o", target, db=False
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("wrote the manifest of blobs", out)
+        self.assertEqual(json.loads(target.read_text())["dataset_id"], "blobs")
+        self.assertNotIn("labels", json.loads(target.read_text()))
+        code, _, err = self.cli("dataset", self.data, "--id", "blobs", "-o", target, db=False)
+        self.assertEqual(code, 2)
+        self.assertIn("only goes with --manifest", err)
+
     def test_note_command(self):
         self.run_experiment()
         code, out, _ = self.cli("note", "run-000001", "hello")

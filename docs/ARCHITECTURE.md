@@ -10,8 +10,9 @@ Each layer imports only from its own layer or the layers above it in this list.
 
 1. **Foundations**: `errors` (one hierarchy rooted at `ModelBenchError`), `ids` (strict
    identifiers), `seeding` (derived seeds), `metrics`, `environment` (fingerprints and drift).
-2. **Inputs**: `datasets` (CSV reading, content-hash versions, seeded splits) and `config`
-   (validated experiment configs, config hashes, parameter grids).
+2. **Inputs**: `datasets` (CSV reading, content-hash versions, seeded splits), `manifest`
+   (a deterministic per-column summary of a dataset) and `config` (validated experiment configs,
+   config hashes, parameter grids).
 3. **Models**: `models/` holds classifiers and regressors behind two small interfaces
    (`Classifier`, `Regressor`) and two name registries (`REGISTRY`, `REGRESSORS`).
 4. **Store**: `store` is the only module that touches SQLite.

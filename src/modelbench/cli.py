@@ -26,6 +26,7 @@ from .export import export_json, export_metrics_csv, export_runs, write_text_ato
 from .importance import ImportanceResult, permutation_importance
 from .importer import import_runs_json, parse_document, parse_runs, read_import_file
 from .learning_curve import DEFAULT_FRACTIONS, LearningCurve, learning_curve
+from .manifest import build_manifest, manifest_json
 from .models import all_models, model_kind
 from .report import collect, render_html, render_markdown
 from .reproducibility import check_reproducibility, recover_stale_runs
@@ -87,6 +88,16 @@ def cmd_models(args: argparse.Namespace) -> int:
 
 def cmd_dataset(args: argparse.Namespace) -> int:
     table = read_csv(args.file)
+    if args.manifest:
+        text = manifest_json(build_manifest(args.id, table, args.label))
+        if args.output:
+            write_text_atomic(args.output, text)
+            print(f"wrote the manifest of {args.id} to {args.output}")
+        else:
+            print(text, end="")
+        return 0
+    if args.output:
+        raise CliError("-o/--output only goes with --manifest")
     version = make_version(args.id, table, args.label)
     info = {
         "dataset_id": version.dataset_id,
@@ -634,6 +645,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("file")
     p.add_argument("--id", required=True, help="dataset identifier")
     p.add_argument("--label", help="label column")
+    p.add_argument("--manifest", action="store_true", help="print the dataset's manifest (JSON)")
+    p.add_argument("-o", "--output", help="with --manifest: write it to a file instead")
 
     p = add("run", cmd_run, "run an experiment from a JSON config file", True)
     p.add_argument("config", help="experiment config (JSON)")
