@@ -20,6 +20,8 @@ from modelbench.runner import run_experiment
 from modelbench.store import Store
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "export_v1.json"
+# written before runs recorded the `columns_sha256` tag; such exports must keep importing
+OLDER = Path(__file__).resolve().parent / "golden" / "export_v1_without_columns_tag.json"
 ENV = {"python": "3.12.0", "platform": "test"}
 
 
@@ -88,6 +90,16 @@ class GoldenExportTests(unittest.TestCase):
             self.assertEqual(other.get_run(new).config_hash, self.store.get_run(old).config_hash)
         again = import_runs_json(other, GOLDEN.read_text(encoding="utf-8"))
         self.assertEqual((len(again.imported), len(again.skipped)), (0, 2))
+
+    def test_an_export_from_before_the_columns_tag_still_imports(self):
+        text = OLDER.read_text(encoding="utf-8")
+        self.assertNotIn("columns_sha256", text)
+        other = Store(":memory:", clock=ticking_clock())
+        self.addCleanup(other.close)
+        report = import_runs_json(other, text)
+        self.assertEqual(len(report.imported), 2)
+        for old, new in report.imported:
+            self.assertEqual(other.final_metrics(new), self.store.final_metrics(old))
 
 
 if __name__ == "__main__":

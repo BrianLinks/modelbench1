@@ -15,7 +15,7 @@ from modelbench.models import REGRESSORS, create_model
 from modelbench.models.knn import KNNClassifier
 from modelbench.models.mean import MeanRegressor
 from modelbench.reproducibility import check_reproducibility
-from modelbench.runner import _check_metrics, _mean_and_std, run_experiment
+from modelbench.runner import _check_metrics, _mean_and_std, columns_signature, run_experiment
 from modelbench.seeding import derive_seed
 from modelbench.store import Store
 
@@ -729,6 +729,52 @@ class ConfusionMatrixTagTests(RunnerTestCase):
             result = self.run_it()
         self.assertNotIn("confusion_matrix", self.store.get_run(result.run_id).tags)
         self.assertEqual(self.store.get_run(result.run_id).status, "completed")
+
+
+class ReuseColumnsTests(RunnerTestCase):
+    def table(self):
+        # a separates the classes perfectly; b is noise that does not
+        rows = [(f"{i * 0.1:.1f}", str((i * 7) % 5), "a") for i in range(20)]
+        rows += [(f"{10 + i * 0.1:.1f}", str((i * 3) % 5), "b") for i in range(20)]
+        return Table(("a", "b", "label"), tuple(rows))
+
+    def test_different_feature_columns_are_a_different_run(self):
+        table, config = self.table(), make_config(stratify=True)
+        first = self.run_it(config, table, feature_columns=["a"], reuse_existing=True)
+        second = self.run_it(config, table, feature_columns=["b"], reuse_existing=True)
+        fresh = self.run_it(config, table, feature_columns=["b"])
+        self.assertNotEqual(first.run_id, second.run_id)
+        self.assertFalse(second.reused)
+        self.assertEqual(second.metrics, fresh.metrics)
+        self.assertNotEqual(first.metrics["accuracy"], second.metrics["accuracy"])
+
+    def test_the_same_columns_are_still_reused_however_they_are_named(self):
+        table, config = self.table(), make_config(stratify=True)
+        first = self.run_it(config, table, reuse_existing=True)  # default: every non-label column
+        again = self.run_it(config, table, feature_columns=["a", "b"], reuse_existing=True)
+        self.assertTrue(again.reused)
+        self.assertEqual(again.run_id, first.run_id)
+        reordered = self.run_it(config, table, feature_columns=["b", "a"], reuse_existing=True)
+        self.assertFalse(reordered.reused)  # the column order is part of how the model sees rows
+
+    def test_the_columns_are_recorded_as_a_tag(self):
+        table, config = self.table(), make_config()
+        one = self.run_it(config, table, feature_columns=["a"])
+        two = self.run_it(config, table, feature_columns=["b"])
+        tags = [self.store.get_run(r.run_id).tags["columns_sha256"] for r in (one, two)]
+        self.assertEqual(len(set(tags)), 2)
+        self.assertEqual(tags[0], columns_signature(table, "label", ["a"]))
+
+    def test_a_run_made_before_the_tag_existed_is_never_reused(self):
+        table, config = self.table(), make_config()
+        first = self.run_it(config, table)
+        with self.store._conn:  # simulate a database written by an older version
+            self.store._conn.execute(
+                "DELETE FROM tags WHERE run_id = ? AND key = 'columns_sha256'", (first.run_id,)
+            )
+        again = self.run_it(config, table, reuse_existing=True)
+        self.assertFalse(again.reused)
+        self.assertNotEqual(again.run_id, first.run_id)
 
 
 class CrossValidationRunTests(RunnerTestCase):

@@ -4,14 +4,15 @@ from unittest import mock
 
 from modelbench.config import ExperimentConfig
 from modelbench.datasets import Table, kfold_indices, split_indices
-from modelbench.errors import AnalysisError
+from modelbench.errors import AnalysisError, MetricError
 from modelbench.learning_curve import (
     DEFAULT_FRACTIONS,
     MAX_POINTS,
     check_fractions,
     learning_curve,
 )
-from modelbench.runner import build_model, run_experiment
+from modelbench.models import create_model
+from modelbench.runner import build_model, run_experiment, score_classifier
 from modelbench.seeding import rng_for
 from modelbench.store import Store
 
@@ -132,6 +133,33 @@ class HandCheckedTests(unittest.TestCase):
         self.assertEqual([p.train_score for p in curve.points], [1.0] * 5)
         self.assertEqual(curve.points[-1].test_score, 1.0)
         self.assertEqual([p.n_train for p in curve.points], [6, 13, 19, 26, 32])
+
+
+class OneClassSubsetTests(unittest.TestCase):
+    """A small training subset can hold a single class; metrics that need two must say so."""
+
+    def table(self):
+        rows = [(f"{i * 0.01:.2f}", "b" if i < 4 else "a") for i in range(40)]
+        return Table(("x", "label"), tuple(rows))
+
+    def test_a_metric_that_needs_two_classes_gives_a_clear_error(self):
+        for metric in ("roc_auc", "average_precision", "brier_score", "ece"):
+            config = ExperimentConfig(
+                "e", "knn", 1, "d", (metric,), {"k": 1}, test_fraction=0.5, stratify=True
+            )
+            with self.subTest(metric), self.assertRaises(AnalysisError) as caught:
+                learning_curve(config, self.table(), "label", fractions=[0.05, 0.5, 1.0])
+            message = str(caught.exception)
+            self.assertIn("fraction 0.05", message)
+            self.assertIn(
+                f"{metric} needs exactly two classes in the training data, got 1", message
+            )
+
+    def test_scoring_directly_raises_a_library_error_not_a_value_error(self):
+        model = create_model("majority")
+        model.fit([[0.0], [1.0]], ["a", "a"])
+        with self.assertRaisesRegex(MetricError, "needs exactly two classes"):
+            score_classifier(["roc_auc"], model, [[0.0]], ["a"], ["a"])
 
 
 class OptionsAndErrorsTests(unittest.TestCase):

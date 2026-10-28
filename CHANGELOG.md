@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- `--reuse` and sweeps no longer return a stored run that used different feature columns: runs now
+  record a `columns_sha256` tag (label column plus ordered feature columns) and reuse needs it to
+  match. Runs stored by older versions lack the tag and are not reused.
+- `import --dry-run` now makes every check the real import makes (timestamps, tag values, metric
+  names, artifacts, notes), so a document it accepts is a document the import accepts.
+- The importer rejects a dataset whose `version` is not the first 12 characters of its `sha256`,
+  and one import naming the same dataset version with two different hashes.
+- A learning curve (or any scoring) with `roc_auc`, `average_precision`, `brier_score` or `ece` on a
+  training subset with a single class now reports a clear error instead of a traceback.
+
 ## [0.3.0] - 2026-10-28
 
 ### Added

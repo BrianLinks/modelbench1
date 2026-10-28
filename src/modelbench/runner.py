@@ -22,7 +22,7 @@ from . import metrics as m
 from .config import ExperimentConfig
 from .datasets import DatasetVersion, Table, kfold_indices, make_version, split_indices
 from .environment import environment_fingerprint
-from .errors import RunnerError
+from .errors import MetricError, RunnerError
 from .models import REGISTRY, REGRESSORS, create_model, create_regressor, model_kind
 from .models.base import Classifier, Label, Regressor
 from .preprocess import NUMBER_RE, Cell, fit_transform_split, parse_cells
@@ -51,7 +51,8 @@ CLASSIFICATION_METRICS = (
 SCORE_NEEDS_TWO_CLASSES = ("roc_auc", "average_precision")
 NEEDS_TWO_TRAINING_CLASSES = ("brier_score", "ece")  # probabilities of the second class
 REGRESSION_METRICS = ("mae", "mse", "rmse", "r2")
-REUSE_TAGS = ("n_train", "n_test", "predictions_sha256")
+COLUMNS_TAG = "columns_sha256"
+REUSE_TAGS = ("n_train", "n_test", "predictions_sha256", COLUMNS_TAG)
 
 
 @dataclass(frozen=True)
@@ -94,14 +95,17 @@ def run_experiment(
     build_model(config)  # reject unknown models and parameters before a run exists
 
     if reuse_existing:
-        earlier = _find_reusable(store, config, dataset)
+        earlier = _find_reusable(
+            store, config, dataset, columns_signature(table, label_column, feature_columns)
+        )
         if earlier is not None:
             return earlier
 
     env = dict(environment) if environment is not None else environment_fingerprint()
     run_id = store.create_run(config, dataset, env)
     try:
-        return _execute(store, run_id, config, folds, artifact_dir)
+        signature = columns_signature(table, label_column, feature_columns)
+        return _execute(store, run_id, config, folds, artifact_dir, signature)
     except Exception as exc:
         store.fail_run(run_id, f"{type(exc).__name__}: {exc}")
         raise
@@ -249,6 +253,7 @@ def _execute(
     config: ExperimentConfig,
     folds: list[Fold],
     artifact_dir: str | Path | None,
+    signature: str,
 ) -> RunResult:
     cv = config.cv_folds is not None
     evaluations: list[_Evaluation] = []
@@ -288,6 +293,7 @@ def _execute(
     if config.preprocess is not None:  # the width after encoding is not the number of columns
         store.set_tag(run_id, "n_features", str(max(f.n_features for f in folds)))
     store.set_tag(run_id, "predictions_sha256", digest)
+    store.set_tag(run_id, COLUMNS_TAG, signature)
     if not isinstance(model, Regressor):
         known = list(model.classes_) if not cv else []
         labels = m.ordered_labels(known, y_true, y_pred)
@@ -325,15 +331,10 @@ def _check_metrics(names: Sequence[str], kind: str = "classification") -> None:
         raise RunnerError(f"unsupported metric(s) {unknown}")
 
 
-def _features_and_labels(
-    table: Table,
-    label_column: str,
-    feature_columns: Sequence[str] | None,
-    numeric_target: bool,
-    config: ExperimentConfig,
-) -> tuple[list[str], list[list[float]], list[list[Cell]] | None, list[Label]]:
-    """Feature names, then either numeric features or (with preprocessing) parsed cells, then
-    the labels."""
+def _feature_names(
+    table: Table, label_column: str, feature_columns: Sequence[str] | None
+) -> list[str]:
+    """The feature columns a run uses: those given, or every column except the label."""
     if label_column not in table.columns:
         raise RunnerError(f"label column {label_column!r} is not in the dataset")
     if feature_columns is None:
@@ -349,6 +350,29 @@ def _features_and_labels(
             raise RunnerError("feature columns must not repeat")
     if not names:
         raise RunnerError("no feature columns to train on")
+    return names
+
+
+def columns_signature(
+    table: Table, label_column: str, feature_columns: Sequence[str] | None
+) -> str:
+    """A hash of which column is the label and which are the features, in order. Two runs with
+    the same config and dataset version but different columns are different runs."""
+    names = _feature_names(table, label_column, feature_columns)
+    payload = json.dumps([label_column, names], separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:16]
+
+
+def _features_and_labels(
+    table: Table,
+    label_column: str,
+    feature_columns: Sequence[str] | None,
+    numeric_target: bool,
+    config: ExperimentConfig,
+) -> tuple[list[str], list[list[float]], list[list[Cell]] | None, list[Label]]:
+    """Feature names, then either numeric features or (with preprocessing) parsed cells, then
+    the labels."""
+    names = _feature_names(table, label_column, feature_columns)
     positions = [table.columns.index(c) for c in names]
     X: list[list[float]] = []
     cells: list[list[Cell]] | None = None
@@ -453,6 +477,11 @@ def score_classifier(
         else:
             proba = proba if proba is not None else model.predict_proba(test_X)
             if name in SCORE_NEEDS_TWO_CLASSES or name in NEEDS_TWO_TRAINING_CLASSES:
+                if len(model.classes_) != 2:
+                    raise MetricError(
+                        f"{name} needs exactly two classes in the training data, "
+                        f"got {len(model.classes_)}"
+                    )
                 _, positive = model.classes_
                 column = [row[1] for row in proba]
                 function = {
@@ -475,7 +504,7 @@ def score_regressor(
 
 
 def _find_reusable(
-    store: Store, config: ExperimentConfig, dataset: DatasetVersion
+    store: Store, config: ExperimentConfig, dataset: DatasetVersion, signature: str
 ) -> RunResult | None:
     for run_id in reversed(store.find_runs_by_config(config.config_hash(), dataset.version)):
         record = store.get_run(run_id)
@@ -483,6 +512,7 @@ def _find_reusable(
             record.status == "completed"
             and record.experiment_id == config.experiment_id
             and all(tag in record.tags for tag in REUSE_TAGS)
+            and record.tags[COLUMNS_TAG] == signature
         ):
             return RunResult(
                 run_id,
