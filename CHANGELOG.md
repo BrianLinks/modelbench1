@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-28
+
 ### Added
 - A test that every import in the package is the standard library or the package itself, and that
   no module refers to a paid service, so the standalone rule in ADR 7 is checked, not just stated.
