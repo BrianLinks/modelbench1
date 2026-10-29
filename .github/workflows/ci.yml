@@ -27,6 +27,21 @@ jobs:
           mypy src
       - run: pytest -q
 
+  browser:
+    # The dashboard script is tested in a real browser here, so these tests cannot be skipped.
+    runs-on: ubuntu-latest
+    env:
+      MODELBENCH_REQUIRE_BROWSER_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,browser]" -c requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - run: node --test tests/js/dashboard.test.js
+      - run: pytest -q tests/test_dashboard_browser.py tests/test_dashboard_js.py
+
   commits:
     # Messages must follow Conventional Commits. Only commits new in this push or pull request
     # are checked, so older history is not rewritten.

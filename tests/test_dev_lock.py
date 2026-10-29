@@ -52,7 +52,7 @@ class DevLockTests(unittest.TestCase):
                 if "pip install -e" in line:
                     installs += 1
                     self.assertIn("-c requirements-dev.txt", line, f"{path.name}: {line.strip()}")
-        self.assertGreaterEqual(installs, 2)
+        self.assertGreaterEqual(installs, 3)
 
     def test_the_lock_names_no_runtime_dependency(self):
         self.assertIn("dependencies = []", PYPROJECT)
