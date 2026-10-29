@@ -57,7 +57,15 @@ def config(**overrides):
     return ExperimentConfig(**fields)
 
 
-class DashboardTestCase(unittest.TestCase):
+class BundledScriptMixin:
+    def assertOnlyTheBundledScript(self, html):
+        tags = re.findall(r"<script\b[^>]*>", html)
+        self.assertEqual(tags, ['<script src="/static/dashboard.js" defer>'])
+        self.assertNotRegex(html, r"<script[^>]*>\s*[^<\s]")  # no inline script body
+        self.assertNotRegex(html, r"\son[a-z]+\s*=")  # no inline event handlers
+
+
+class DashboardTestCase(BundledScriptMixin, unittest.TestCase):
     """Three completed runs, one failed, one live run with a multi-step metric."""
 
     def setUp(self):
@@ -153,7 +161,7 @@ class RunPageTests(DashboardTestCase):
         self.assertIn("0.2500", body)
         self.assertIn("<td>2</td><td>3</td>", body)  # final step 2, three points
         self.assertIn("note &lt;script&gt;", body)
-        self.assertNotIn("<script", body)
+        self.assertOnlyTheBundledScript(body)
         self.assertIn("second line", body)
 
     def test_unknown_and_invalid_ids(self):
@@ -344,7 +352,10 @@ class ServerTests(DashboardTestCase):
         self.assertIn(b"run-000001", body)
         self.assertEqual(response.getheader("Content-Length"), str(len(body)))
         self.assertIn("default-src 'none'", response.getheader("Content-Security-Policy"))
-        self.assertNotIn("script-src", response.getheader("Content-Security-Policy"))
+        policy = response.getheader("Content-Security-Policy")
+        self.assertIn("script-src 'self';", policy)
+        for unsafe in ("unsafe-inline';", "unsafe-eval", "http", "*", "data:"):
+            self.assertNotIn(unsafe, policy.split("script-src", 1)[1].split(";", 1)[0])
         self.assertEqual(response.getheader("X-Content-Type-Options"), "nosniff")
         self.assertEqual(response.getheader("X-Frame-Options"), "DENY")
         self.assertEqual(response.getheader("Cache-Control"), "no-store")
@@ -557,7 +568,10 @@ class UnitScaleTests(unittest.TestCase):
 
 class ParallelChartTests(unittest.TestCase):
     def lines(self, svg):
-        return re.findall(r'<polyline class="([^"]*)" points="([^"]*)"><title>([^<]*)</title>', svg)
+        return re.findall(
+            r'<polyline class="([^"]*)" points="([^"]*)"(?: data-[^>]*)?><title>([^<]*)</title>',
+            svg,
+        )
 
     def test_numeric_axes_by_hand(self):
         # plot area: x from 24 to 500, y from 260 (smallest) up to 40 (largest)
@@ -634,7 +648,7 @@ class ParallelSectionTests(unittest.TestCase):
         self.assertIn("<h2>All parameters against accuracy</h2>", html)
         for name in (">k<", ">w<", ">accuracy<"):
             self.assertIn(name, html)
-        self.assertRegex(html, r'class="pc-line best" points="[^"]*"><title>run-2</title>')
+        self.assertRegex(html, r'class="pc-line best" points="[^"]*"[^>]*><title>run-2</title>')
 
     def test_one_varying_parameter_is_left_to_its_scatter_chart(self):
         self.assertEqual(parallel_section("accuracy", ["k"], self.entries, None), "")
@@ -654,7 +668,7 @@ class ParallelSectionTests(unittest.TestCase):
         self.assertNotIn("best", parallel_section("m", ["k", "w"], self.entries, "nope"))
 
 
-class ExperimentPageTests(unittest.TestCase):
+class ExperimentPageTests(BundledScriptMixin, unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -762,7 +776,9 @@ class ExperimentPageTests(unittest.TestCase):
         self.assertEqual(body.count('class="pc-line best"'), 1)
         self.assertEqual(body.count('<polyline class="pc-line'), 4)  # one line per run
         # all four tie at 1.0, so the earliest run (k=1, uniform) is the best
-        self.assertRegex(body, r'class="pc-line best" points="[^"]*"><title>run-000007</title>')
+        self.assertRegex(
+            body, r'class="pc-line best" points="[^"]*"[^>]*><title>run-000007</title>'
+        )
         for name in (">k<", ">weights<", ">accuracy<"):
             self.assertIn(name, body)
 
@@ -770,9 +786,8 @@ class ExperimentPageTests(unittest.TestCase):
         self.assertNotIn("All parameters against", self.get("/experiment/ridge").body)
         self.assertNotIn("<polyline", self.get("/experiment/lone").body)
 
-    def test_the_page_carries_no_script(self):
-        body = self.get("/experiment/ridge").body
-        self.assertNotIn("<script", body)
+    def test_the_page_carries_only_the_bundled_script(self):
+        self.assertOnlyTheBundledScript(self.get("/experiment/ridge").body)
 
 
 class RegressionRunsTests(unittest.TestCase):
@@ -816,7 +831,7 @@ class ConfusionHeatmapTests(unittest.TestCase):
         self.assertIn('viewBox="0 0 210 156"', svg)  # 110 + 2 * 46 + 8 wide, 56 + 2 * 46 + 8 high
         for count in ("3", "1", "0", "4"):
             self.assertIn('class="count"', svg)
-            self.assertRegex(svg, rf'text-anchor="middle">{count}</text>')
+            self.assertRegex(svg, rf'data-share="[0-9.]+">{count}</text>')
         self.assertIn("true a, predicted a: 3 (75% of the row)", svg)
         self.assertIn("true b, predicted b: 4 (100% of the row)", svg)
         self.assertIn('fill-opacity="0.080"', svg)  # the empty cell is faint, not invisible
@@ -861,3 +876,68 @@ class ConfusionHeatmapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaticScriptTests(DashboardTestCase):
+    def test_the_script_is_served_with_its_own_content_type(self):
+        response = self.get("/static/dashboard.js")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.content_type, "text/javascript; charset=utf-8")
+        source = (Path(dashboard.__file__).parent / "static" / "dashboard.js").read_text("utf-8")
+        self.assertEqual(response.body, source)
+
+    def test_only_the_listed_file_is_served(self):
+        for target in (
+            "/static/",
+            "/static",
+            "/static/dashboard.js/",
+            "/static/Dashboard.js",
+            "/static/../dashboard.py",
+            "/static/%2e%2e/dashboard.py",
+            "/static/dashboard.js%00.py",
+            "/static/other.js",
+            "/dashboard.js",
+        ):
+            with self.subTest(target=target):
+                self.assertEqual(self.get(target).status, 404)
+
+    def test_the_script_obeys_the_host_check(self):
+        self.assertEqual(self.get("/static/dashboard.js", host="evil.example").status, 403)
+
+    def test_a_query_string_does_not_change_the_file(self):
+        self.assertEqual(
+            self.get("/static/dashboard.js?x=1").body, self.get("/static/dashboard.js").body
+        )
+
+    def test_the_script_is_served_over_http_with_the_security_headers(self):
+        server = make_server(self.db, "127.0.0.1", 0)
+        self.addCleanup(server.server_close)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(server.shutdown)
+        conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+        self.addCleanup(conn.close)
+        conn.request("GET", "/static/dashboard.js")
+        response = conn.getresponse()
+        body = response.read()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader("Content-Type"), "text/javascript; charset=utf-8")
+        self.assertEqual(response.getheader("X-Content-Type-Options"), "nosniff")
+        self.assertEqual(response.getheader("Content-Length"), str(len(body)))
+        conn.request("POST", "/static/dashboard.js")
+        post = conn.getresponse()
+        post.read()
+        self.assertEqual(post.status, 405)
+
+    def test_every_page_links_the_script_and_hooks_exist_for_it(self):
+        for target in ("/", "/run/run-000001", "/run/run-000005", "/compare?run=run-000001"):
+            with self.subTest(target=target):
+                self.assertOnlyTheBundledScript(self.get(target).body)
+        index = self.get("/").body
+        self.assertIn("<table data-runs>", index)
+        self.assertEqual(index.count(" data-sort>"), 5)
+        self.assertIn("data-autosubmit", index)
+        run = self.get("/run/run-000001").body
+        self.assertIn('data-kind="heatmap"', run)
+        self.assertIn('data-count="', run)

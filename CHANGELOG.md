@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- Dashboard script (`static/dashboard.js`, ES5, no dependencies): sort the run list by any column
+  or metric, filter it by text, read the value under the pointer on charts, click a line in the
+  all-parameters chart to open the run, switch the confusion matrix between counts and percent of
+  row, and apply experiment-page choices at once. Every page is still complete without it. The
+  Content-Security-Policy now allows `script-src 'self'`; inline scripts stay forbidden
+  ([ADR 9](docs/adr/0009-a-small-same-origin-script-for-the-dashboard.md)).
+- Tests for the script: logic under Node, a source scan that forbids `innerHTML`, `eval`, network
+  calls, storage and external URLs, and browser tests (Playwright, optional) with a CI job that
+  requires them.
 - `requirements-dev.txt`: exact pins for pytest, ruff, mypy and their dependencies (Python 3.12 and
   newer), used as constraints by CI and the release workflow, with a test that keeps it consistent
   with `pyproject.toml`.

@@ -53,9 +53,14 @@ that are already present. The metrics CSV is for analysis and cannot be imported
 
 ## The dashboard
 
-`modelbench serve` opens the database read-only and renders HTML and a JSON API with no
-JavaScript. It binds to loopback unless told otherwise, checks the `Host` header, sends a strict
-Content-Security-Policy, and escapes everything it prints.
+`modelbench serve` opens the database read-only and renders complete HTML pages and a JSON API on
+the server. One dependency-free script (`static/dashboard.js`, served from a fixed allowlist of
+one path) adds sorting, filtering, chart read-outs and similar conveniences on top of those pages;
+the pages work without it. The server binds to loopback unless told otherwise, checks the `Host`
+header, sends a strict Content-Security-Policy that allows scripts from itself only, and escapes
+everything it prints. The script's logic is plain functions tested under Node, and the whole page
+behaviour is tested in a real browser when Playwright is installed (see
+[ADR 9](adr/0009-a-small-same-origin-script-for-the-dashboard.md)).
 
 ## Testing approach
 

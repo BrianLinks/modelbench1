@@ -34,8 +34,11 @@ No input is ever passed to `eval`, `exec`, `compile`, `pickle` or a shell. Artif
 - While bound to loopback it answers 403 to any request whose `Host` header is not a loopback
   name, which blocks DNS-rebinding from a web page you have open.
 - It opens the database read-only (SQLite refuses writes) and accepts only GET and HEAD.
-- Pages carry no script, load nothing from outside, and send a Content-Security-Policy that
-  forbids scripts, remote loads and framing.
+- Pages carry no inline script and load nothing from outside. The only script is the bundled
+  `/static/dashboard.js`, and the Content-Security-Policy (`script-src 'self'`) forbids every other
+  script, inline scripts, remote loads and framing, so injected text cannot run even if escaping
+  failed. The script is served only at that one path, makes no requests, never builds HTML from
+  text, and navigates only to `/run/<id>` pages.
 - Request targets longer than 2,000 characters are refused.
 
 ## Known limits (not defended)

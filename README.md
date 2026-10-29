@@ -344,8 +344,22 @@ page plotting a parameter against a metric, one run in full
 notes), and a comparison with a bar chart per metric, rankings, and parameter and environment
 differences. For the comparison page the oldest selected run is the baseline unless you pick
 another. JSON is available at `/api/runs`, `/api/run/<id>`, and `/api/compare?run=...` (there
-the first `run` is the baseline). The pages use no script and no outside resources, and work in
-light and dark mode.
+the first `run` is the baseline). The pages load nothing from outside and work in light and dark
+mode.
+
+Every page is complete HTML with inline SVG charts and works with scripts blocked. One small
+script, [`dashboard.js`](src/modelbench/static/dashboard.js), served by the dashboard itself and
+with no dependencies, adds:
+
+- on the run list: a filter box (every word must match), sorting by any column header (click, or
+  Enter or Space on the focused header), and sorting by any recorded metric;
+- on charts: the value under the pointer is shown below the chart and the nearest dot or line is
+  highlighted; in the all-parameters chart, clicking a line opens that run;
+- on a confusion matrix: a button that switches between counts and percent of each row;
+- on the experiment page: choosing a parameter or metric applies it at once.
+
+The script makes no requests, never builds HTML from text, and only navigates to `/run/<id>`
+pages. See [ADR 9](docs/adr/0009-a-small-same-origin-script-for-the-dashboard.md).
 
 What it will and will not do:
 
@@ -357,7 +371,8 @@ What it will and will not do:
   have open. `--host` with a non-loopback address is refused unless you add `--allow-network`,
   because there is no login: anyone who can reach the port can read every run, note, and path.
 - Every value from the database or the URL is HTML-escaped, and the Content-Security-Policy
-  forbids scripts, remote loads, and framing.
+  allows scripts only from the dashboard itself (no inline scripts), and forbids remote loads and
+  framing.
 - Stop it with Ctrl-C.
 
 ## Preprocessing
@@ -614,6 +629,11 @@ python -m unittest discover -s tests
 
 `requirements-dev.txt` pins the exact tool versions CI uses (Python 3.12 and newer); leave out
 `-c requirements-dev.txt` to take the newest releases.
+
+The dashboard script has its own tests: `node --test tests/js/dashboard.test.js` (Node.js 18 or
+newer; also run by the normal test suite when `node` is on the path), and tests that drive the
+pages in Chromium: `pip install -e ".[browser]"`, `playwright install chromium`, then
+`python -m unittest tests.test_dashboard_browser`. Without Playwright those are skipped.
 
 Python 3.10 or newer. The package has no runtime dependencies.
 

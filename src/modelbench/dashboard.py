@@ -1,13 +1,16 @@
 """A read-only local dashboard served with the standard library.
 
-Pages are rendered on the server as plain HTML with inline SVG charts and no script. The
-database is opened read-only for every request, so the dashboard cannot change a run. Safety
-choices:
+Pages are rendered on the server as complete HTML with inline SVG charts, so every page works
+with scripts blocked. One small script, `static/dashboard.js`, adds sorting, filtering, chart
+read-outs and similar conveniences; it is served by this module from a fixed allowlist, makes no
+requests, and never builds HTML from text. The database is opened read-only for every request, so
+the dashboard cannot change a run. Safety choices:
 
 - It binds to the loopback interface unless told otherwise, and while bound there it rejects
   requests whose Host header names anything but a loopback name (a DNS rebinding defence).
 - Every value taken from the database or the URL is HTML-escaped, and a strict
-  Content-Security-Policy forbids scripts, remote resources, and framing.
+  Content-Security-Policy allows scripts only from this server and forbids remote resources,
+  inline scripts, and framing.
 - Only GET and HEAD are accepted.
 """
 
@@ -23,6 +26,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import resources
 from pathlib import Path
 from typing import Any, TextIO
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
@@ -41,9 +45,10 @@ MAX_LIST = 200
 DEFAULT_LIST = 50
 MAX_COMPARE = 20
 MAX_TARGET_LENGTH = 2000
+STATIC_FILES = {"/static/dashboard.js": ("dashboard.js", "text/javascript; charset=utf-8")}
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
-        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+        "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; "
         "form-action 'self'; frame-ancestors 'none'"
     ),
     "X-Content-Type-Options": "nosniff",
@@ -51,6 +56,16 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
 }
+
+
+def static_response(path: str) -> Response | None:
+    """The bundled script for `path`, or None when `path` is not one of the allowed files."""
+    entry = STATIC_FILES.get(path)
+    if entry is None:
+        return None
+    name, content_type = entry
+    text = (resources.files("modelbench") / "static" / name).read_text(encoding="utf-8")
+    return Response(200, content_type, text)
 
 
 class NotFound(DashboardError):
@@ -130,13 +145,13 @@ def line_chart(title: str, points: Sequence[tuple[int, float]], width: int = 560
 
     path = " ".join(f"{px(s):.1f},{py(v):.1f}" for s, v in points)
     dots = "".join(
-        f'<circle class="dot" cx="{px(s):.1f}" cy="{py(v):.1f}" r="3">'
-        f"<title>step {s}: {fmt(v)}</title></circle>"
+        f'<circle class="dot" cx="{px(s):.1f}" cy="{py(v):.1f}" r="3" '
+        f'data-readout="step {s}: {fmt(v)}"><title>step {s}: {fmt(v)}</title></circle>'
         for s, v in points
     )
     return (
-        f'<svg class="chart" viewBox="0 0 {width} {height}" width="{width}" role="img" '
-        f'aria-label="{esc(title)}"><title>{esc(title)}</title>'
+        f'<svg class="chart" data-kind="points" viewBox="0 0 {width} {height}" width="{width}" '
+        f'role="img" aria-label="{esc(title)}"><title>{esc(title)}</title>'
         f'<line class="zero" x1="{left}" y1="{top}" x2="{left}" y2="{height - bottom}"/>'
         f'<line class="zero" x1="{left}" y1="{height - bottom}" x2="{width - right}" '
         f'y2="{height - bottom}"/>'
@@ -223,7 +238,8 @@ def scatter_chart(
         ticks = [(px(c), _shorten(c)) for c in categories]
     dots = "".join(
         f'<circle class="dot{" best" if i == best else ""}" cx="{px(x):.1f}" cy="{py(y):.1f}" '
-        f'r="{5 if i == best else 3.5}"><title>{esc(label)}: {fmt(y)}</title></circle>'
+        f'r="{5 if i == best else 3.5}" data-readout="{esc(label)}: {fmt(y)}">'
+        f"<title>{esc(label)}: {fmt(y)}</title></circle>"
         for i, (x, y, label) in enumerate(points)
     )
     tick_text = "".join(
@@ -233,8 +249,8 @@ def scatter_chart(
     )
     axis_name = f"{x_name} (log scale)" if log else x_name
     return (
-        f'<svg class="chart" viewBox="0 0 {width} {height}" width="{width}" role="img" '
-        f'aria-label="{esc(title)}"><title>{esc(title)}</title>'
+        f'<svg class="chart" data-kind="points" viewBox="0 0 {width} {height}" width="{width}" '
+        f'role="img" aria-label="{esc(title)}"><title>{esc(title)}</title>'
         f'<line class="zero" x1="{left}" y1="{top}" x2="{left}" y2="{height - bottom}"/>'
         f'<line class="zero" x1="{left}" y1="{height - bottom}" x2="{width - right}" '
         f'y2="{height - bottom}"/>{dots}'
@@ -252,12 +268,14 @@ def parallel_chart(
     rows: Sequence[tuple[str, Sequence[Any]]],
     best: int | None = None,
     width: int = 560,
+    link_runs: bool = False,
 ) -> str:
     """Parallel coordinates: one vertical axis per name, one line per `(label, values)` row.
 
     `values` has one entry per axis, `None` where a row has no value. An axis is numeric when its
     values are all numbers (log scale as in `scatter_chart`) and has one slot per distinct value
-    otherwise. The row at index `best` is drawn last and highlighted.
+    otherwise. The row at index `best` is drawn last and highlighted. With `link_runs` each label is
+    a run id and its line links to that run's page when clicked (with the script).
     """
     if len(axes) < 2 or not rows:
         return ""
@@ -287,8 +305,8 @@ def parallel_chart(
     places = [place(i) for i in range(len(axes))]
     xs = [left + i / (len(axes) - 1) * plot_w for i in range(len(axes))]
     parts = [
-        f'<svg class="chart" viewBox="0 0 {width} {height}" width="{width}" role="img" '
-        f'aria-label="{esc(title)}"><title>{esc(title)}</title>'
+        f'<svg class="chart" data-kind="parallel" viewBox="0 0 {width} {height}" '
+        f'width="{width}" role="img" aria-label="{esc(title)}"><title>{esc(title)}</title>'
     ]
     for x in xs:
         parts.append(
@@ -298,6 +316,9 @@ def parallel_chart(
     for index in order:
         label, values = rows[index]
         css = "pc-line best" if index == best else "pc-line"
+        hooks = f'data-readout="{esc(label)}"'
+        if link_runs:
+            hooks += f' data-href="/run/{esc(quote(label, safe=""))}"'
         segment: list[str] = []
         segments: list[list[str]] = []
         for i, value in enumerate(values):
@@ -312,14 +333,14 @@ def parallel_chart(
         for points in segments:
             if len(points) > 1:
                 parts.append(
-                    f'<polyline class="{css}" points="{" ".join(points)}">'
+                    f'<polyline class="{css}" points="{" ".join(points)}" {hooks}>'
                     f"<title>{esc(label)}</title></polyline>"
                 )
             else:
                 cx, cy = points[0].split(",")
                 kind = "dot best" if index == best else "dot"
                 parts.append(
-                    f'<circle class="{kind}" cx="{cx}" cy="{cy}" r="3">'
+                    f'<circle class="{kind}" cx="{cx}" cy="{cy}" r="3" {hooks}>'
                     f"<title>{esc(label)}</title></circle>"
                 )
     for i, name in enumerate(axes):  # labels last, so lines never hide them
@@ -356,7 +377,7 @@ def parallel_section(
     rows = [(rid, [*(params.get(n) for n in names), value]) for rid, params, value in entries]
     best = next((i for i, (rid, _, _) in enumerate(entries) if rid == best_id), None)
     heading = f"All parameters against {metric}"
-    chart = parallel_chart(heading, [*names, metric], rows, best)
+    chart = parallel_chart(heading, [*names, metric], rows, best, link_runs=True)
     return f"<h2>{esc(heading)}</h2>{chart}"
 
 
@@ -373,8 +394,8 @@ def confusion_heatmap(cm: ConfusionMatrix, title: str = "Confusion matrix") -> s
         return text if len(text) <= 14 else text[:13] + "..."
 
     parts = [
-        f'<svg class="chart" viewBox="0 0 {width} {height}" width="{width}" role="img" '
-        f'aria-label="{esc(title)}"><title>{esc(title)}</title>'
+        f'<svg class="chart" data-kind="heatmap" viewBox="0 0 {width} {height}" width="{width}" '
+        f'role="img" aria-label="{esc(title)}"><title>{esc(title)}</title>'
         f'<text class="axis" x="{left}" y="12">predicted</text>'
         f'<text class="axis" x="4" y="{top - 8}">true</text>'
     ]
@@ -398,7 +419,7 @@ def confusion_heatmap(cm: ConfusionMatrix, title: str = "Confusion matrix") -> s
                 f"<title>true {esc(label)}, predicted {esc(cm.labels[j])}: {count} "
                 f"({share:.0%} of the row)</title></rect>"
                 f'<text class="count" x="{left + j * cell + cell / 2}" y="{y + cell / 2 + 5:.1f}" '
-                f'text-anchor="middle">{count}</text>'
+                f'text-anchor="middle" data-count="{count}" data-share="{share:.4f}">{count}</text>'
             )
     parts.append("</svg>")
     return "".join(parts)
@@ -430,6 +451,12 @@ table+table,p+table{margin-top:1em}form{margin:.6em 0 1em}
 .axis{fill:var(--muted);font-size:12px}
 .cell{fill:var(--bar);stroke:var(--line)}.count{fill:var(--fg);font-size:13px}
 pre{white-space:pre-wrap;word-break:break-word;margin:0}
+tr[hidden]{display:none}.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+th.sortable{cursor:pointer;text-decoration:underline dotted}
+th[aria-sort=ascending]::after{content:" \\25B2"}th[aria-sort=descending]::after{content:" \\25BC"}
+.readout{min-height:1.5em;margin:.2em 0;color:var(--muted)}
+circle.active{fill:var(--accent);stroke:var(--fg);stroke-width:2}
+.pc-focus .pc-line{stroke-opacity:.15}.pc-focus .pc-line.active{stroke-opacity:1;stroke-width:3.5}
 """
 
 
@@ -437,7 +464,8 @@ def page(title: str, body: str) -> str:
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f"<title>{esc(title)} - ModelBench</title><style>{CSS}</style></head><body>"
+        f"<title>{esc(title)} - ModelBench</title><style>{CSS}</style>"
+        '<script src="/static/dashboard.js" defer></script></head><body>'
         '<nav><a href="/">ModelBench</a><span class="muted">read-only dashboard</span></nav>'
         f"<main>{body}</main></body></html>"
     )
@@ -480,7 +508,7 @@ def render_index(store: Store, query: dict[str, list[str]]) -> str:
         f'<option value="{s}"{" selected" if s == status else ""}>{s}</option>' for s in STATUSES
     )
     form = (
-        '<form method="get" action="/"><label>experiment '
+        '<form method="get" action="/" data-autosubmit><label>experiment '
         f'<input name="experiment" value="{esc(experiment or "")}"></label> '
         f'<label>status <select name="status"><option value="">any</option>{options}</select>'
         "</label> <button>Filter</button></form>"
@@ -503,8 +531,9 @@ def render_index(store: Store, query: dict[str, list[str]]) -> str:
             f"<td>{esc(run.started_at)}</td><td>{metrics}</td></tr>"
         )
     table = (
-        '<form method="get" action="/compare"><table><thead><tr><th></th><th>Run</th>'
-        "<th>Experiment</th><th>Model</th><th>Status</th><th>Started</th><th>Metrics</th>"
+        '<form method="get" action="/compare"><table data-runs><thead><tr><th></th>'
+        "<th data-sort>Run</th><th data-sort>Experiment</th><th data-sort>Model</th>"
+        "<th data-sort>Status</th><th data-sort>Started</th><th>Metrics</th>"
         f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
         "<p><button>Compare selected runs</button> "
         '<span class="muted">the oldest selected run is the baseline</span></p>'
@@ -739,7 +768,8 @@ def render_experiment(store: Store, experiment_id: str, query: dict[str, list[st
     form = ""
     if varying:
         form = (
-            f'<form method="get" action="/experiment/{esc(quote(experiment_id, safe=""))}">'
+            f'<form method="get" action="/experiment/{esc(quote(experiment_id, safe=""))}" '
+            "data-autosubmit>"
             f'<label>parameter <select name="param">{"".join(option(n, param) for n in varying)}'
             f'</select></label> <label>metric <select name="metric">'
             f"{''.join(option(n, metric) for n in metric_names)}</select></label> "
@@ -860,6 +890,9 @@ def handle(
         path = unquote(parts.path, errors="strict")
     except (ValueError, UnicodeDecodeError):
         return _error_page(400, "malformed request")
+    static = static_response(path)
+    if static is not None:
+        return static
     api = path.startswith("/api/")
     try:
         with Store(db_path, read_only=True) as store:

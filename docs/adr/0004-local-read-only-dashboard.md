@@ -1,6 +1,6 @@
-# 4. A local, read-only, script-free dashboard
+# 4. A local, read-only dashboard rendered on the server
 
-Status: accepted
+Status: accepted; the "no JavaScript" consequence is revised by [ADR 9](0009-a-small-same-origin-script-for-the-dashboard.md)
 
 ## Context
 A web view is the easiest way to look at many runs, but a local server is still a network
@@ -13,5 +13,5 @@ is not an allowed loopback name (DNS rebinding), sends `Content-Security-Policy:
 Windows it takes the port exclusively so another process cannot share it.
 
 ## Consequences
-- No JavaScript means no client-side interactivity beyond links and forms.
+- Without a script the pages offer no client-side interactivity beyond links and forms.
 - Listening on another interface requires `--allow-network` and is the user's responsibility.
