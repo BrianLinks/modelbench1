@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- `docs/REPRODUCIBILITY.md`: what a run depends on, how `repro` decides, what can break reproducibility, and what to do when it does.
+
 ## [0.3.1] - 2026-10-28
 
 ### Fixed

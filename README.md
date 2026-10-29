@@ -564,6 +564,9 @@ asking you to rescale, never as a raw `OverflowError`.
 
 ## Reproducibility notes
 
+The full guide, with what each verdict means and what can break a run, is in
+[docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md).
+
 - Sub-seeds come from SHA-256, never from Python's per-process `hash()`.
 - Splits use Python's seeded Mersenne Twister. Results can differ across Python or library
   versions, so `environment_fingerprint()` records them and `compare_environments()` explains
