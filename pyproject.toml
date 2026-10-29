@@ -12,7 +12,7 @@ license = { text = "MIT" }
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]
+dev = ["pytest>=8", "ruff>=0.17.2", "mypy>=1.10"]
 browser = ["playwright>=1.45"]  # optional: runs the dashboard tests in a real browser
 
 [project.scripts]
