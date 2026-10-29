@@ -5,6 +5,9 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- `requirements-dev.txt`: exact pins for pytest, ruff, mypy and their dependencies (Python 3.12 and
+  newer), used as constraints by CI and the release workflow, with a test that keeps it consistent
+  with `pyproject.toml`.
 - `docs/REPRODUCIBILITY.md`: what a run depends on, how `repro` decides, what can break reproducibility, and what to do when it does.
 
 ## [0.3.1] - 2026-10-28

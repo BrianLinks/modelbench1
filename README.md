@@ -608,9 +608,12 @@ precision_recall_f1(y_true, y_pred, average="macro")
 ## Development
 
 ```
-pip install -e ".[dev]"
+pip install -e ".[dev]" -c requirements-dev.txt
 python -m unittest discover -s tests
 ```
+
+`requirements-dev.txt` pins the exact tool versions CI uses (Python 3.12 and newer); leave out
+`-c requirements-dev.txt` to take the newest releases.
 
 Python 3.10 or newer. The package has no runtime dependencies.
 

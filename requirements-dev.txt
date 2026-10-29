@@ -1,0 +1,22 @@
+# Pinned development tools: the exact versions `pip install -e ".[dev]"` resolved on 2026-10-28
+# (Windows, Python 3.14). CI passes this file as constraints:
+#
+#     pip install -e ".[dev]" -c requirements-dev.txt
+#
+# The pins apply to Python 3.12 and newer, which is where lint and type-checking run. Older
+# Pythons keep resolving the ranges in pyproject.toml, because a newer tool release may have
+# dropped them. To update, install without the constraint, run the checks, and replace the
+# versions below with the result of `pip freeze`.
+ast-serialize==0.13.1; python_version >= "3.12"
+colorama==0.4.6; python_version >= "3.12" and sys_platform == "win32"
+iniconfig==2.3.1; python_version >= "3.12"
+librt==0.16.0; python_version >= "3.12"
+mypy==2.4.1; python_version >= "3.12"
+mypy_extensions==1.1.0; python_version >= "3.12"
+packaging==26.3; python_version >= "3.12"
+pathspec==1.1.1; python_version >= "3.12"
+pluggy==1.7.0; python_version >= "3.12"
+Pygments==2.21.0; python_version >= "3.12"
+pytest==9.2.0; python_version >= "3.12"
+ruff==0.17.3; python_version >= "3.12"
+typing_extensions==4.16.0; python_version >= "3.12"
