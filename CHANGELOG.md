@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-29
+
 ### Added
 - Dashboard script (`static/dashboard.js`, ES5, no dependencies): sort the run list by any column
   or metric, filter it by text, read the value under the pointer on charts, click a line in the
