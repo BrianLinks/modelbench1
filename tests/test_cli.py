@@ -1248,6 +1248,96 @@ class NestedCommandTests(CliTestCase):
         self.assertIn("invalid parameters", err)
 
 
+class SelectCommandTests(CliTestCase):
+    def setUp(self):
+        super().setUp()
+        rng_lines = ["a,b,n0,n1,label"]
+        import random
+
+        rng = random.Random(3)
+        for _ in range(80):
+            a, b = rng.uniform(-3, 3), rng.uniform(-3, 3)
+            noise = ",".join(f"{rng.uniform(0, 1):.3f}" for _ in range(2))
+            label = "p" if a + b + rng.gauss(0, 0.4) > 0 else "q"
+            rng_lines.append(f"{a:.3f},{b:.3f},{noise},{label}")
+        self.signal = self.dir / "signal.csv"
+        self.signal.write_text("\n".join(rng_lines) + "\n")
+
+    def selection_file(self, **changes):
+        document = {
+            "config": json.loads(config_text(params={"k": 5}, metrics=["accuracy", "f1"])),
+            "folds": 4,
+        }
+        document.update(changes)
+        path = self.dir / "selection.json"
+        path.write_text(json.dumps(document))
+        return path
+
+    def select(self, *extra, **changes):
+        return self.cli(
+            "select",
+            self.selection_file(**changes),
+            "--data",
+            self.signal,
+            "--label",
+            "label",
+            *extra,
+        )
+
+    def test_text_output_lists_the_steps_and_the_optimism_note(self):
+        code, out, err = self.select()
+        self.assertEqual((code, err), (0, ""), msg=out)
+        lines = out.splitlines()
+        self.assertEqual(
+            lines[0],
+            "select exp-a: forward over 4 columns, 4-fold, scored by accuracy (higher is better)",
+        )
+        self.assertEqual(lines[2].split(), ["step", "added", "accuracy", "tried"])
+        self.assertTrue(any(line.startswith("selected  ") for line in lines))
+        self.assertTrue(any("columns: " in line and line.startswith("score  ") for line in lines))
+        self.assertEqual(
+            lines[-1], "the score is optimistic: the columns were chosen on these same folds"
+        )
+
+    def test_backward_starts_from_all_columns(self):
+        code, out, _ = self.select(direction="backward")
+        self.assertEqual(code, 0)
+        lines = out.splitlines()
+        self.assertIn("dropped", lines[2])
+        self.assertIn("(all columns)", lines[3])
+
+    def test_json_output_and_options(self):
+        code, out, _ = self.select("--json", max_features=2)
+        data = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(data["selected"]), 2)
+        self.assertEqual(data["features"], ["a", "b", "n0", "n1"])
+        self.assertEqual(len(data["steps"]), 2)
+        code, out, _ = self.select("--json", "--features", "a,n0", "--rank-by", "f1")
+        data = json.loads(out)
+        self.assertEqual((data["metric"], data["features"]), ("f1", ["a", "n0"]))
+
+    def test_nothing_is_stored(self):
+        self.select()
+        self.assertFalse(Path(self.db).exists())
+
+    def test_bad_input_is_an_error(self):
+        code, _, err = self.cli(
+            "select", self.dir / "no.json", "--data", self.signal, "--label", "label"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("cannot read selection file", err)
+        code, _, err = self.select(folds=1)
+        self.assertEqual(code, 2)
+        self.assertIn("folds", err)
+        code, _, err = self.select("--features", "nope")
+        self.assertEqual(code, 2)
+        self.assertIn("feature column(s) not in the dataset", err)
+        code, _, err = self.select("--rank-by", "zzz")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot select by", err)
+
+
 class ReportCommandTests(CliTestCase):
     def setUp(self):
         super().setUp()

@@ -35,6 +35,7 @@ from .reproducibility import check_reproducibility, recover_stale_runs
 from .run_comparison import RunComparison, compare_runs
 from .runner import run_experiment
 from .samples import available_samples, generate, run_demo, table_to_csv
+from .selection import SelectionResult, describe, load_selection, run_selection
 from .store import STATUSES, Store
 from .sweep import SweepResult, load_search, load_sweep, run_search, run_sweep
 
@@ -341,6 +342,53 @@ def cmd_nested(args: argparse.Namespace) -> int:
         )
     else:
         print(_render_nested(result, spec.config.metrics))
+    return 0
+
+
+def _render_selection(result: SelectionResult) -> str:
+    direction = "higher" if result.higher_is_better else "lower"
+    verb = "added" if result.direction == "forward" else "dropped"
+    lines = [
+        f"select {result.experiment_id}: {result.direction} over {len(result.features)} columns, "
+        f"{result.folds}-fold, scored by {result.metric} ({direction} is better)",
+        "",
+    ]
+    rows = [["step", verb, result.metric, "tried"]]
+    if result.start_score is not None:
+        rows.append(["0", "(all columns)", _fmt(result.start_score), ""])
+    for number, step in enumerate(result.steps, start=1):
+        others = " ".join(f"{c}={_fmt(v)}" for c, v in step.tried.items() if c != step.feature)
+        rows.append([str(number), step.feature, _fmt(step.score), others])
+    lines.append(_table([[_safe(cell) for cell in row] for row in rows]))
+    lines.append("")
+    if result.score is None:
+        lines.append("no column was selected")
+    else:
+        lines.append(f"selected  {_safe(', '.join(result.selected))}")
+        lines.append(
+            f"score  {_fmt(result.score)}  "
+            f"(all {len(result.features)} columns: {_fmt(result.all_score)})"
+        )
+    lines.append("the score is optimistic: the columns were chosen on these same folds")
+    return "\n".join(lines)
+
+
+def cmd_select(args: argparse.Namespace) -> int:
+    spec = load_selection(args.selection)
+    table = read_csv(args.data)
+    result = run_selection(
+        spec.config,
+        table,
+        args.label,
+        folds=spec.folds,
+        direction=spec.direction,
+        feature_columns=_split_list(args.features, "--features"),
+        max_features=spec.max_features,
+        min_features=spec.min_features,
+        tolerance=spec.tolerance,
+        rank_by=args.rank_by,
+    )
+    print(_json(describe(result)) if args.json else _render_selection(result))
     return 0
 
 
@@ -885,6 +933,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--data", required=True, help="CSV file")
     p.add_argument("--label", required=True, help="label column")
     p.add_argument("--features", help="comma-separated feature columns (default: all others)")
+    p.add_argument("--rank-by", help="metric to select by (default: the config's first metric)")
+
+    p = add("select", cmd_select, "greedy feature selection scored by cross-validation", True)
+    p.add_argument(
+        "selection",
+        help='selection file: {"config": {...}, "folds": K, "direction": "forward"|"backward"}',
+    )
+    p.add_argument("--data", required=True, help="CSV file")
+    p.add_argument("--label", required=True, help="label column")
+    p.add_argument("--features", help="comma-separated columns to choose between (default: all)")
     p.add_argument("--rank-by", help="metric to select by (default: the config's first metric)")
 
     p = add("list", cmd_list, "list runs, newest first", True)

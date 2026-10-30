@@ -136,6 +136,22 @@ class ExampleTests(unittest.TestCase):
         self.assertEqual(set(data["metrics"]), {"accuracy", "f1"})
         self.assertGreater(data["estimate"]["mean"], 0.9)
 
+    def test_the_selection_example_picks_columns_and_reports_the_optimism_warning(self):
+        code, out, err = self.cli(
+            "select", self.example("linear-select.json"), "--data", self.linear, "--label", "y",
+            "--json",
+        )  # fmt: skip
+        self.assertEqual((code, err), (0, ""))
+        data = json.loads(out)
+        self.assertEqual(data["direction"], "forward")
+        self.assertFalse(data["higher_is_better"])
+        self.assertTrue(data["selected"])
+        self.assertLessEqual(data["score"], data["steps"][0]["score"])
+        code, text, _ = self.cli(
+            "select", self.example("linear-select.json"), "--data", self.linear, "--label", "y"
+        )  # fmt: skip
+        self.assertIn("the score is optimistic", text)
+
     def test_the_ridge_sweep_prefers_a_small_penalty(self):
         code, out, err = self.cli(
             "sweep",

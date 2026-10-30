@@ -1,0 +1,12 @@
+{
+  "config": {
+    "experiment_id": "linear-select",
+    "model": "linear_regression",
+    "seed": 5,
+    "dataset_id": "linear",
+    "metrics": ["mae", "r2"],
+    "params": {}
+  },
+  "folds": 5,
+  "direction": "forward"
+}

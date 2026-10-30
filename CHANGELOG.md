@@ -5,6 +5,8 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- `modelbench select`: forward and backward feature selection scored by cross-validation on shared
+  folds, listing what every candidate column would have scored at each step.
 - `modelbench nested`: nested cross-validation over a grid or a seeded search space, reporting the
   honest outer estimate, the inner score plain selection would give, the optimism between them,
   and how often each candidate was chosen.

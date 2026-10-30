@@ -126,6 +126,7 @@ modelbench [--db runs.db] <command> ...
 | `search SEARCH.json --data F.csv --label COL` | seeded random search over parameter ranges, ranked like `sweep` (same options) |
 | `halve HALVING.json --data F.csv --label COL` | successive halving: many seeded draws at a small budget, the best third at triple the budget, and so on (`--rank-by`, `--no-reuse`) |
 | `nested NESTED.json --data F.csv --label COL` | nested cross-validation: choose parameters in inner folds, score the choice on outer folds it never saw (`--rank-by`); stores nothing |
+| `select SELECTION.json --data F.csv --label COL` | greedy forward or backward feature selection scored by cross-validation (`--features`, `--rank-by`); stores nothing |
 | `list` | runs, newest first (`--experiment`, `--status`, `--limit`) |
 | `show RUN` | one run in full: config, metrics, tags, files, notes |
 | `compare RUN RUN ...` | the first run is the baseline (`--metrics a,b`) |
@@ -140,7 +141,7 @@ modelbench [--db runs.db] <command> ...
 | `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version; `--manifest` prints a per-column summary as JSON instead (`-o FILE` writes it) |
 | `models` | list the available models |
 
-`run`, `sweep`, `search`, `halve`, `nested`, `importance`, `learning-curve`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
+`run`, `sweep`, `search`, `halve`, `nested`, `select`, `importance`, `learning-curve`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
 defaults to `modelbench.db`; only `run` creates it, and every other command reports a missing
 database instead of making an empty one. A config file is the JSON form of an experiment:
 
@@ -253,6 +254,29 @@ than the fold) is skipped for that outer fold; a bad parameter name is an error 
 is fitted. The cost is `outer_folds * (candidates * inner_folds + 1)` fits, capped at 20,000.
 Models with a `seed` get fold-specific seeds (see `modelbench/nested.py`), and preprocessing is
 fitted on each training split only.
+
+### Feature selection
+
+`modelbench select` chooses columns greedily by cross-validated score:
+
+```json
+{"config": {"experiment_id": "linear-select", "model": "linear_regression", "seed": 5,
+            "dataset_id": "linear", "metrics": ["mae"], "params": {}},
+ "folds": 5, "direction": "forward", "max_features": 4, "tolerance": 0.0}
+```
+
+`forward` starts empty and adds, at each step, the column that improves the score most; it stops
+when the best addition gains no more than `tolerance` (the first column is always added) or when
+`max_features` columns are chosen. `backward` starts with every column and drops, at each step,
+the one whose removal scores best; it continues while the score falls by no more than `tolerance`
+(so zero drops columns that do not hurt) and stops at `min_features`. All subsets are scored on the
+same folds, with the config's model, parameters, preprocessing and seeds, using the first metric
+or `--rank-by`; ties go to the column earliest in the table (forward adds it, backward drops it).
+`--features a,b,c` limits the columns considered. The output lists each step with the score every
+other candidate column would have given, the selected columns, and the score with all columns for
+comparison. That score is optimistic: the columns were chosen on those same folds, more so the
+more columns there are. For an honest figure, evaluate the chosen columns on data the search never
+saw. Nothing is stored; the cost is up to `columns * (columns + 1) / 2 * folds` fits.
 
 ### Successive halving
 
