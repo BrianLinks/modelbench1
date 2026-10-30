@@ -10,6 +10,7 @@ that). Leaves predict the class fractions of their training rows.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from ..errors import ModelError
@@ -56,6 +57,8 @@ class DecisionTreeClassifier(Classifier):
         self._classes_list: tuple[Label, ...] = ()
         self.depth_ = 0
         self.n_leaves_ = 0
+        # Set by ensembles that look at a subset of features at each split; not a parameter.
+        self._feature_chooser: Callable[[int], Sequence[int]] | None = None
 
     def get_params(self) -> dict[str, Any]:
         return {
@@ -89,7 +92,7 @@ class DecisionTreeClassifier(Classifier):
             pure = max(node.counts) == node.n
             allowed = self.max_depth is None or level < self.max_depth
             if not pure and allowed and node.n >= self.min_samples_split:
-                split = self._best_split(X, target, rows, node.counts)
+                split = self._split_for(X, target, rows, node.counts)
             if split is None:
                 leaves += 1
                 continue
@@ -105,13 +108,32 @@ class DecisionTreeClassifier(Classifier):
         self.depth_ = depth
         self.n_leaves_ = leaves
 
-    def _best_split(
+    def _split_for(
         self, X: Matrix, target: list[int], rows: list[int], totals: list[int]
+    ) -> tuple[int, float] | None:
+        width = len(X[0])
+        if self._feature_chooser is None:
+            return self._best_split(X, target, rows, totals, range(width))
+        chosen = sorted(set(self._feature_chooser(width)))
+        found = self._best_split(X, target, rows, totals, chosen)
+        if found is not None:
+            return found
+        # no valid split among the chosen features: look at the rest, as a forest should
+        rest = [f for f in range(width) if f not in set(chosen)]
+        return self._best_split(X, target, rows, totals, rest) if rest else None
+
+    def _best_split(
+        self,
+        X: Matrix,
+        target: list[int],
+        rows: list[int],
+        totals: list[int],
+        features: Sequence[int],
     ) -> tuple[int, float] | None:
         m = len(rows)
         best: tuple[int, float] | None = None
         best_score = 0.0
-        for feature in range(len(X[0])):
+        for feature in features:
             order = sorted(rows, key=lambda i: (X[i][feature], i))
             left = [0] * len(totals)
             right = list(totals)

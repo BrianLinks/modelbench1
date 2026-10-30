@@ -628,6 +628,8 @@ class ErrorHandlingTests(CliTestCase):
                 "majority  classification",
                 "mean  regression",
                 "perceptron  classification",
+                "random_forest  classification",
+                "random_forest_regressor  regression",
                 "stratified  classification",
             ],
         )

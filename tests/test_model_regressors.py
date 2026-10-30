@@ -194,7 +194,13 @@ class RegistryTests(unittest.TestCase):
     def test_kinds_and_listings(self):
         self.assertEqual(
             available_regressors(),
-            ("decision_tree_regressor", "knn_regressor", "linear_regression", "mean"),
+            (
+                "decision_tree_regressor",
+                "knn_regressor",
+                "linear_regression",
+                "mean",
+                "random_forest_regressor",
+            ),
         )
         self.assertEqual(set(all_models()), set(REGISTRY) | set(REGRESSORS))
         self.assertEqual(list(all_models()), sorted(all_models()))

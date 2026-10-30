@@ -17,6 +17,8 @@ from .majority import MajorityClassifier
 from .mean import MeanRegressor
 from .naive_bayes import GaussianNB
 from .perceptron import Perceptron
+from .random_forest import RandomForest
+from .random_forest_regressor import RandomForestRegressor
 from .stratified import StratifiedClassifier
 
 REGISTRY: dict[str, type[Classifier]] = {
@@ -28,6 +30,7 @@ REGISTRY: dict[str, type[Classifier]] = {
     LogisticRegression.name: LogisticRegression,
     BaggedTrees.name: BaggedTrees,
     Perceptron.name: Perceptron,
+    RandomForest.name: RandomForest,
 }
 
 REGRESSORS: dict[str, type[Regressor]] = {
@@ -35,6 +38,7 @@ REGRESSORS: dict[str, type[Regressor]] = {
     LinearRegression.name: LinearRegression,
     KNNRegressor.name: KNNRegressor,
     DecisionTreeRegressor.name: DecisionTreeRegressor,
+    RandomForestRegressor.name: RandomForestRegressor,
 }
 
 
@@ -101,6 +105,8 @@ __all__ = [
     "MajorityClassifier",
     "MeanRegressor",
     "Perceptron",
+    "RandomForest",
+    "RandomForestRegressor",
     "Regressor",
     "StratifiedClassifier",
     "all_models",

@@ -7,6 +7,9 @@ All notable changes to this project are documented here.
 ## [0.4.0] - 2026-10-29
 
 ### Added
+- `random_forest` and `random_forest_regressor`: bagged trees that look at a random subset of
+  features at every split (seeded, repeatable), with an out-of-bag score. `bagged_trees` reports
+  `oob_score_` too.
 - Dashboard script (`static/dashboard.js`, ES5, no dependencies): sort the run list by any column
   or metric, filter it by text, read the value under the pointer on charts, click a line in the
   all-parameters chart to open the run, switch the confusion matrix between counts and percent of

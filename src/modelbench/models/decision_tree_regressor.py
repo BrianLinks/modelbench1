@@ -12,6 +12,7 @@ Leaves predict the mean target of their training rows.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from .base import Matrix, Regressor
@@ -50,6 +51,8 @@ class DecisionTreeRegressor(Regressor):
         self._root: _Node | None = None
         self.depth_ = 0
         self.n_leaves_ = 0
+        # Set by ensembles that look at a subset of features at each split; not a parameter.
+        self._feature_chooser: Callable[[int], Sequence[int]] | None = None
 
     def get_params(self) -> dict[str, Any]:
         return {
@@ -76,7 +79,7 @@ class DecisionTreeRegressor(Regressor):
             constant = all(y[i] == y[rows[0]] for i in rows)
             allowed = self.max_depth is None or level < self.max_depth
             if not constant and allowed and node.n >= self.min_samples_split:
-                split = self._best_split(X, y, rows, node.mean)
+                split = self._split_for(X, y, rows, node.mean)
             if split is None:
                 leaves += 1
                 continue
@@ -91,15 +94,33 @@ class DecisionTreeRegressor(Regressor):
         self.depth_ = depth
         self.n_leaves_ = leaves
 
-    def _best_split(
+    def _split_for(
         self, X: Matrix, y: list[float], rows: list[int], mean: float
+    ) -> tuple[int, float] | None:
+        width = len(X[0])
+        if self._feature_chooser is None:
+            return self._best_split(X, y, rows, mean, range(width))
+        chosen = sorted(set(self._feature_chooser(width)))
+        found = self._best_split(X, y, rows, mean, chosen)
+        if found is not None:
+            return found
+        rest = [f for f in range(width) if f not in set(chosen)]
+        return self._best_split(X, y, rows, mean, rest) if rest else None
+
+    def _best_split(
+        self,
+        X: Matrix,
+        y: list[float],
+        rows: list[int],
+        mean: float,
+        features: Sequence[int],
     ) -> tuple[int, float] | None:
         m = len(rows)
         spread = math.fsum((y[i] - mean) ** 2 for i in rows)
         total = math.fsum(y[i] - mean for i in rows)
         best: tuple[int, float] | None = None
         best_score = 0.0
-        for feature in range(len(X[0])):
+        for feature in features:
             order = sorted(rows, key=lambda i: (X[i][feature], i))
             sum_left = 0.0
             for position in range(m - 1):
