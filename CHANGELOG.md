@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- `modelbench nested`: nested cross-validation over a grid or a seeded search space, reporting the
+  honest outer estimate, the inner score plain selection would give, the optimism between them,
+  and how often each candidate was chosen.
+
 ## [0.5.0] - 2026-10-30
 
 ### Added

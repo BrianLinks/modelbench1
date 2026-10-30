@@ -122,6 +122,20 @@ class ExampleTests(unittest.TestCase):
         self.assertLessEqual(sizes[0], 12)
         self.assertEqual(data["best"], data["rounds"][-1]["entries"][0]["run_id"])
 
+    def test_the_nested_example_reports_an_honest_estimate(self):
+        code, out, err = self.cli(
+            "nested", self.example("knn-nested.json"), "--data", self.blobs, "--label", "label",
+            "--json",
+        )  # fmt: skip
+        self.assertEqual((code, err), (0, ""))
+        data = json.loads(out)
+        self.assertEqual(len(data["outer"]), 5)
+        self.assertEqual(len(data["candidates"]), 10)
+        self.assertEqual(sum(data["choice_counts"]), 5)
+        self.assertEqual(sum(f["test_size"] for f in data["outer"]), 120)
+        self.assertEqual(set(data["metrics"]), {"accuracy", "f1"})
+        self.assertGreater(data["estimate"]["mean"], 0.9)
+
     def test_the_ridge_sweep_prefers_a_small_penalty(self):
         code, out, err = self.cli(
             "sweep",

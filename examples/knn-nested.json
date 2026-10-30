@@ -1,0 +1,14 @@
+{
+  "config": {
+    "experiment_id": "blobs-knn-nested",
+    "model": "knn",
+    "seed": 3,
+    "dataset_id": "blobs",
+    "metrics": ["accuracy", "f1"],
+    "stratify": true,
+    "params": {}
+  },
+  "grid": {"k": [1, 3, 5, 9, 15], "weights": ["uniform", "distance"]},
+  "outer_folds": 5,
+  "inner_folds": 3
+}

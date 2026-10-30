@@ -29,6 +29,7 @@ from .importer import import_runs_json, parse_document, parse_runs, read_import_
 from .learning_curve import DEFAULT_FRACTIONS, LearningCurve, learning_curve
 from .manifest import build_manifest, manifest_json
 from .models import all_models, model_kind
+from .nested import NestedResult, candidate_params, load_nested, run_nested
 from .report import collect, render_html, render_markdown
 from .reproducibility import check_reproducibility, recover_stale_runs
 from .run_comparison import RunComparison, compare_runs
@@ -249,6 +250,98 @@ def _render_halving(result: HalvingResult, metrics: Sequence[str]) -> str:
         f"best {best.run_id}  {_safe(_params_text(best.params))}" if best else "no run succeeded"
     )
     return "\n".join(lines)
+
+
+def _render_nested(result: NestedResult, metrics: Sequence[str]) -> str:
+    direction = "higher" if result.higher_is_better else "lower"
+    mean, std = result.estimate
+    lines = [
+        f"nested {result.experiment_id}: {len(result.outer)} outer folds, "
+        f"{len(result.candidates)} candidates, selected by {result.metric} ({direction} is better)",
+        "",
+    ]
+    rows = [["fold", "train", "test", "chosen", "inner", *metrics]]
+    for fold in result.outer:
+        cells = [
+            str(fold.number),
+            str(fold.train_size),
+            str(fold.test_size),
+            _params_text(result.candidates[fold.chosen]),
+            _fmt(fold.inner_score),
+        ]
+        cells += [_fmt(fold.test_scores[m]) for m in metrics]
+        rows.append([_safe(cell) for cell in cells])
+    lines.append(_table(rows))
+    lines.append("")
+    lines.append(f"outer estimate  {result.metric} = {_fmt(mean)} +/- {_fmt(std)}")
+    lines.append(f"inner (selection) score  {_fmt(result.selection_score)}")
+    lines.append(f"optimism  {_fmt(result.optimism)}  (how much plain selection overstated it)")
+    others = [m for m in metrics if m != result.metric]
+    summary = result.metric_summary()
+    for name in others:
+        lines.append(f"outer {name} = {_fmt(summary[name][0])} +/- {_fmt(summary[name][1])}")
+    counts = result.choice_counts()
+    picked = sorted((i for i, c in enumerate(counts) if c), key=lambda i: (-counts[i], i))
+    lines.append("")
+    lines.append(
+        "chosen in "
+        + "; ".join(
+            f"{counts[i]} of {len(result.outer)} folds: {_safe(_params_text(result.candidates[i]))}"
+            for i in picked
+        )
+    )
+    return "\n".join(lines)
+
+
+def cmd_nested(args: argparse.Namespace) -> int:
+    spec = load_nested(args.nested)
+    table = read_csv(args.data)
+    candidates = candidate_params(spec.config, spec.grid, spec.space, spec.trials)
+    result = run_nested(
+        spec.config,
+        candidates,
+        table,
+        args.label,
+        outer_folds=spec.outer_folds,
+        inner_folds=spec.inner_folds,
+        feature_columns=_split_list(args.features, "--features"),
+        rank_by=args.rank_by,
+    )
+    if args.json:
+        mean, std = result.estimate
+        print(
+            _json(
+                {
+                    "experiment_id": result.experiment_id,
+                    "metric": result.metric,
+                    "higher_is_better": result.higher_is_better,
+                    "estimate": {"mean": mean, "std": std},
+                    "selection_score": result.selection_score,
+                    "optimism": result.optimism,
+                    "metrics": {
+                        name: {"mean": m, "std": s}
+                        for name, (m, s) in result.metric_summary().items()
+                    },
+                    "candidates": [dict(c) for c in result.candidates],
+                    "choice_counts": result.choice_counts(),
+                    "outer": [
+                        {
+                            "fold": f.number,
+                            "train_size": f.train_size,
+                            "test_size": f.test_size,
+                            "chosen": f.chosen,
+                            "params": result.candidates[f.chosen],
+                            "inner_scores": list(f.inner_scores),
+                            "test_scores": f.test_scores,
+                        }
+                        for f in result.outer
+                    ],
+                }
+            )
+        )
+    else:
+        print(_render_nested(result, spec.config.metrics))
+    return 0
 
 
 def cmd_halve(args: argparse.Namespace) -> int:
@@ -780,6 +873,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--artifact-dir", help="also write each run's predictions here")
     p.add_argument("--rank-by", help="metric to rank by (default: the config's first metric)")
     p.add_argument("--no-reuse", action="store_true", help="re-run draws already stored")
+
+    p = add(
+        "nested", cmd_nested, "nested cross-validation: choose parameters, estimate honestly", True
+    )
+    p.add_argument(
+        "nested",
+        help='nested file: {"config": {...}, "grid": {...} or "space" + "trials", '
+        '"outer_folds": K, "inner_folds": K}',
+    )
+    p.add_argument("--data", required=True, help="CSV file")
+    p.add_argument("--label", required=True, help="label column")
+    p.add_argument("--features", help="comma-separated feature columns (default: all others)")
+    p.add_argument("--rank-by", help="metric to select by (default: the config's first metric)")
 
     p = add("list", cmd_list, "list runs, newest first", True)
     p.add_argument("--experiment")

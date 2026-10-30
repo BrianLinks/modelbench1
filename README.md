@@ -125,6 +125,7 @@ modelbench [--db runs.db] <command> ...
 | `learning-curve CONFIG.json --data F.csv --label COL` | train and test score at growing training-set sizes (`--fractions`, `--metric`) |
 | `search SEARCH.json --data F.csv --label COL` | seeded random search over parameter ranges, ranked like `sweep` (same options) |
 | `halve HALVING.json --data F.csv --label COL` | successive halving: many seeded draws at a small budget, the best third at triple the budget, and so on (`--rank-by`, `--no-reuse`) |
+| `nested NESTED.json --data F.csv --label COL` | nested cross-validation: choose parameters in inner folds, score the choice on outer folds it never saw (`--rank-by`); stores nothing |
 | `list` | runs, newest first (`--experiment`, `--status`, `--limit`) |
 | `show RUN` | one run in full: config, metrics, tags, files, notes |
 | `compare RUN RUN ...` | the first run is the baseline (`--metrics a,b`) |
@@ -139,7 +140,7 @@ modelbench [--db runs.db] <command> ...
 | `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version; `--manifest` prints a per-column summary as JSON instead (`-o FILE` writes it) |
 | `models` | list the available models |
 
-`run`, `sweep`, `search`, `halve`, `importance`, `learning-curve`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
+`run`, `sweep`, `search`, `halve`, `nested`, `importance`, `learning-curve`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
 defaults to `modelbench.db`; only `run` creates it, and every other command reports a missing
 database instead of making an empty one. A config file is the JSON form of an experiment:
 
@@ -222,6 +223,36 @@ file always gives the same runs, and raising `trials` only adds draws after the 
 (which are reused). A draw that repeats an earlier one is skipped, so a small space can give
 fewer runs than `trials`. Everything else works as for `sweep`: ranking, `--rank-by`, failed
 draws listed with their errors, exit code 1 if any failed.
+
+### Nested cross-validation
+
+Choosing the best of many parameter sets by cross-validated score and then quoting that score
+flatters the winner, because it was picked for scoring well on those very folds. `modelbench
+nested` separates the two jobs:
+
+```json
+{"config": {"experiment_id": "knn-nested", "model": "knn", "seed": 3, "dataset_id": "blobs",
+            "metrics": ["accuracy", "f1"], "stratify": true, "params": {}},
+ "grid": {"k": [1, 3, 5, 9, 15], "weights": ["uniform", "distance"]},
+ "outer_folds": 5, "inner_folds": 3}
+```
+
+Use `"grid"` for every combination, or `"space"` with `"trials"` for seeded random draws as in
+`search`. The config must not set `cv_folds`. For each of the `outer_folds` train/test splits the
+candidates are scored by `inner_folds`-fold cross-validation inside that training set only, the
+best by `--rank-by` (default the first metric; ties go to the earlier candidate) is refitted on the
+whole outer training set, and that one model is scored once on the outer test fold. The output is
+a table per outer fold, the outer estimate (mean and spread of the outer test scores, the number to
+trust), the inner score plain selection would have reported, and the **optimism**: how much that
+overstated the outer estimate (positive means overstated, whichever way the metric points). It
+also counts how often each candidate was chosen; a different winner in every fold says the
+choice hardly matters or the data is too small to tell. The estimate is for the *procedure* (search,
+then fit), not for one particular parameter set. Nothing is stored, and the result depends only on
+the files and the seed. A candidate that cannot be fitted on an inner fold (for example `k` larger
+than the fold) is skipped for that outer fold; a bad parameter name is an error before anything
+is fitted. The cost is `outer_folds * (candidates * inner_folds + 1)` fits, capped at 20,000.
+Models with a `seed` get fold-specific seeds (see `modelbench/nested.py`), and preprocessing is
+fitted on each training split only.
 
 ### Successive halving
 

@@ -1157,6 +1157,97 @@ class HalveCommandTests(CliTestCase):
         self.assertIn("cannot rank by", err)
 
 
+class NestedCommandTests(CliTestCase):
+    def nested_file(self, **changes):
+        document = {
+            "config": json.loads(config_text(params={}, metrics=["accuracy", "f1"])),
+            "grid": {"k": [1, 3, 5], "weights": ["uniform", "distance"]},
+            "outer_folds": 4,
+            "inner_folds": 3,
+        }
+        document.update(changes)
+        path = self.dir / "nested.json"
+        path.write_text(json.dumps(document))
+        return path
+
+    def nested(self, *extra, **changes):
+        return self.cli(
+            "nested", self.nested_file(**changes), "--data", self.data, "--label", "label", *extra
+        )
+
+    def test_text_output_has_a_row_per_outer_fold_and_the_summary_lines(self):
+        code, out, err = self.nested()
+        self.assertEqual((code, err), (0, ""), msg=out)
+        lines = out.splitlines()
+        self.assertEqual(
+            lines[0],
+            "nested exp-a: 4 outer folds, 6 candidates, selected by accuracy (higher is better)",
+        )
+        self.assertEqual(
+            lines[2].split(), ["fold", "train", "test", "chosen", "inner", "accuracy", "f1"]
+        )
+        self.assertEqual([line.split()[0] for line in lines[3:7]], ["0", "1", "2", "3"])
+        self.assertTrue(any(line.startswith("outer estimate  accuracy = ") for line in lines))
+        self.assertTrue(any(line.startswith("inner (selection) score  ") for line in lines))
+        self.assertTrue(any(line.startswith("optimism  ") for line in lines))
+        self.assertTrue(any(line.startswith("outer f1 = ") for line in lines))
+        self.assertTrue(lines[-1].startswith("chosen in "))
+
+    def test_nothing_is_stored(self):
+        self.nested()
+        self.assertFalse(Path(self.db).exists())
+
+    def test_json_output(self):
+        code, out, _ = self.nested("--json")
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data["metric"], "accuracy")
+        self.assertTrue(data["higher_is_better"])
+        self.assertEqual(len(data["candidates"]), 6)
+        self.assertEqual(len(data["outer"]), 4)
+        self.assertEqual(sum(f["test_size"] for f in data["outer"]), 40)
+        self.assertEqual(sum(data["choice_counts"]), 4)
+        first = data["outer"][0]
+        self.assertEqual(first["params"], data["candidates"][first["chosen"]])
+        self.assertEqual(len(first["inner_scores"]), 6)
+        tests = [f["test_scores"]["accuracy"] for f in data["outer"]]
+        self.assertAlmostEqual(data["estimate"]["mean"], sum(tests) / 4)
+        self.assertEqual(set(data["metrics"]), {"accuracy", "f1"})
+
+    def test_the_same_files_give_the_same_output(self):
+        self.assertEqual(self.nested()[1], self.nested()[1])
+
+    def test_a_search_space_can_replace_the_grid(self):
+        space = {"k": {"int": [1, 9]}, "weights": {"choice": ["uniform", "distance"]}}
+        path = self.nested_file(space=space, trials=5)
+        document = json.loads(path.read_text())
+        del document["grid"]
+        path.write_text(json.dumps(document))
+        code, out, err = self.cli("nested", path, "--data", self.data, "--label", "label", "--json")
+        self.assertEqual((code, err), (0, ""))
+        self.assertLessEqual(len(json.loads(out)["candidates"]), 5)
+
+    def test_selecting_by_another_metric(self):
+        code, out, _ = self.nested("--rank-by", "f1", "--json")
+        self.assertEqual((code, json.loads(out)["metric"]), (0, "f1"))
+
+    def test_bad_input_is_an_error(self):
+        code, _, err = self.cli(
+            "nested", self.dir / "nope.json", "--data", self.data, "--label", "label"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("cannot read nested file", err)
+        code, _, err = self.nested(outer_folds=1)
+        self.assertEqual(code, 2)
+        self.assertIn("outer_folds", err)
+        code, _, err = self.nested("--rank-by", "nope")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot select by", err)
+        code, _, err = self.nested(grid={"nope": [1, 2]})
+        self.assertEqual(code, 2)
+        self.assertIn("invalid parameters", err)
+
+
 class ReportCommandTests(CliTestCase):
     def setUp(self):
         super().setUp()
