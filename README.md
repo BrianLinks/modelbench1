@@ -124,6 +124,7 @@ modelbench [--db runs.db] <command> ...
 | `report EXPERIMENT` | a standalone report on one experiment's completed runs: HTML with charts, or `--format md` (`--metric`, `-o FILE`) |
 | `learning-curve CONFIG.json --data F.csv --label COL` | train and test score at growing training-set sizes (`--fractions`, `--metric`) |
 | `search SEARCH.json --data F.csv --label COL` | seeded random search over parameter ranges, ranked like `sweep` (same options) |
+| `halve HALVING.json --data F.csv --label COL` | successive halving: many seeded draws at a small budget, the best third at triple the budget, and so on (`--rank-by`, `--no-reuse`) |
 | `list` | runs, newest first (`--experiment`, `--status`, `--limit`) |
 | `show RUN` | one run in full: config, metrics, tags, files, notes |
 | `compare RUN RUN ...` | the first run is the baseline (`--metrics a,b`) |
@@ -138,7 +139,7 @@ modelbench [--db runs.db] <command> ...
 | `dataset F.csv --id ID [--label COL]` | show a CSV's content-hash version; `--manifest` prints a per-column summary as JSON instead (`-o FILE` writes it) |
 | `models` | list the available models |
 
-`run`, `sweep`, `search`, `importance`, `learning-curve`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
+`run`, `sweep`, `search`, `halve`, `importance`, `learning-curve`, `list`, `show`, `compare`, `repro`, and `dataset` also take `--json`. The database
 defaults to `modelbench.db`; only `run` creates it, and every other command reports a missing
 database instead of making an empty one. A config file is the JSON form of an experiment:
 
@@ -221,6 +222,34 @@ file always gives the same runs, and raising `trials` only adds draws after the 
 (which are reused). A draw that repeats an earlier one is skipped, so a small space can give
 fewer runs than `trials`. Everything else works as for `sweep`: ranking, `--rank-by`, failed
 draws listed with their errors, exit code 1 if any failed.
+
+### Successive halving
+
+Random search runs every draw at full cost. `modelbench halve` starts many draws cheaply, keeps
+the best share, raises the budget, and repeats, so most of the compute goes to the few draws that
+look good:
+
+```json
+{"config": {"experiment_id": "rf-halving", "model": "random_forest", "seed": 11,
+            "dataset_id": "blobs", "metrics": ["accuracy"], "params": {"max_features": "sqrt"}},
+ "space": {"max_depth": {"int": [1, 8]}, "min_samples_leaf": {"int": [1, 6]}},
+ "candidates": 12,
+ "halving": {"resource": "n_estimators", "min_resource": 3, "max_resource": 27, "eta": 3}}
+```
+
+The budget is one numeric parameter of the model that you name (`resource`): the trees of a
+forest, the epochs of the perceptron, the boosting stages. The rounds use `min_resource`,
+`min_resource * eta`, and so on while that stays within `max_resource`; the last round always runs
+at `max_resource`. After each round the best `1/eta` of the draws (rounded up, at least one,
+`eta` is 3 by default and at most 10) go on, ranked by the config's first metric or `--rank-by`;
+ties go to the lower run id. Draws come from the same generator as `search`, so a halving file and
+a search file with the same seed and space look at the same parameter sets, and a draw that
+repeats an earlier one is skipped. Every step is an ordinary recorded run of the experiment, so
+each can be shown, compared and checked with `repro`, and a rerun reuses the runs that exist
+(`--no-reuse` repeats them). A draw that fails is listed with its error and dropped, and the exit
+code is 1. The resource must not also appear in the space or the config's `params`. Early rounds
+are noisy: a draw can rank well at a small budget and poorly at a large one, which is the trade
+this method makes.
 
 The dashboard's experiment page (`/experiment/<id>`, linked from the run list and run pages)
 plots one parameter against one metric for the experiment's completed runs and highlights the

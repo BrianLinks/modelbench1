@@ -1083,6 +1083,80 @@ class SearchCommandTests(CliTestCase):
         self.assertIn('"trials" must be a whole number', err)
 
 
+class HalveCommandTests(CliTestCase):
+    def halving_file(self, space=None, candidates=9, **halving):
+        block = {"resource": "k", "min_resource": 1, "max_resource": 9, "eta": 3}
+        block.update(halving)
+        document = {
+            "config": json.loads(config_text(params={})),
+            "space": space
+            or {
+                "weights": {"choice": ["uniform", "distance"]},
+                "metric": {"choice": ["euclidean", "manhattan"]},
+            },
+            "candidates": candidates,
+            "halving": block,
+        }
+        path = self.dir / "halving.json"
+        path.write_text(json.dumps(document))
+        return path
+
+    def halve(self, *extra, **kwargs):
+        return self.cli(
+            "halve", self.halving_file(**kwargs), "--data", self.data, "--label", "label", *extra
+        )
+
+    def test_text_output_lists_each_round_and_the_best_run(self):
+        code, out, err = self.halve(space={"weights": {"choice": ["uniform", "distance"]}})
+        self.assertEqual((code, err), (0, ""), msg=out)
+        lines = out.splitlines()
+        self.assertTrue(lines[0].startswith("halving exp-a: "), lines[0])
+        self.assertTrue(lines[0].endswith("ranked by accuracy (higher is better)"))
+        rounds = [line for line in lines if line.startswith("round ")]
+        self.assertEqual(rounds[0], "round 1: k=1, 2 run(s)")
+        self.assertTrue(lines[-1].startswith("best run-"))
+        self.assertIn("next", lines[lines.index(rounds[0]) + 1])
+
+    def test_json_output_has_every_round(self):
+        code, out, _ = self.halve("--json")
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data["resource"], "k")
+        self.assertEqual([r["resource_value"] for r in data["rounds"]], [1, 3, 9])
+        first = data["rounds"][0]
+        self.assertEqual(len(first["kept"]), -(-len(first["entries"]) // 3))  # a third, rounded up
+        self.assertEqual(len(data["rounds"][1]["entries"]), len(first["kept"]))
+        self.assertTrue(all(e["rank"] for e in first["entries"]))
+        self.assertEqual(data["best"], data["rounds"][-1]["entries"][0]["run_id"])
+
+    def test_a_rerun_reuses_the_stored_runs(self):
+        self.halve()
+        runs = len(json.loads(self.cli("list", "--json", "--limit", "200")[1]))
+        data = json.loads(self.halve("--json")[1])
+        self.assertTrue(all(e["reused"] for r in data["rounds"] for e in r["entries"]))
+        self.assertEqual(len(json.loads(self.cli("list", "--json", "--limit", "200")[1])), runs)
+        self.halve("--no-reuse")
+        self.assertEqual(len(json.loads(self.cli("list", "--json", "--limit", "200")[1])), 2 * runs)
+
+    def test_a_failed_candidate_sets_exit_code_one(self):
+        code, out, _ = self.halve(space={"weights": {"choice": ["uniform", "bogus"]}}, candidates=6)
+        self.assertEqual(code, 1)
+        self.assertIn("failed  ", out)
+
+    def test_bad_files_and_options_are_errors(self):
+        code, _, err = self.cli(
+            "halve", self.dir / "nope.json", "--data", self.data, "--label", "label"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("cannot read halving file", err)
+        code, _, err = self.halve(eta=1)
+        self.assertEqual(code, 2)
+        self.assertIn("eta", err)
+        code, _, err = self.halve("--rank-by", "nope")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot rank by", err)
+
+
 class ReportCommandTests(CliTestCase):
     def setUp(self):
         super().setUp()

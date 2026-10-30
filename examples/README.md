@@ -14,6 +14,7 @@ modelbench run examples/knn.json --data blobs.csv --label label
 modelbench run examples/forest-cv.json --data blobs.csv --label label
 modelbench sweep examples/knn-sweep.json --data blobs.csv --label label
 modelbench search examples/knn-search.json --data blobs.csv --label label
+modelbench halve examples/forest-halving.json --data blobs.csv --label label
 modelbench sweep examples/ridge-sweep.json --data linear.csv --label y
 
 modelbench list
@@ -27,6 +28,7 @@ modelbench serve
 | `forest-cv.json` | 5-fold stratified cross-validation of bagged trees; per-fold scores, mean and spread |
 | `knn-sweep.json` | a parameter grid, ranked |
 | `knn-search.json` | seeded random search over a range of `k` and a choice of weighting |
+| `forest-halving.json` | successive halving: 12 forests start at 3 trees, the best third get 9, the best of those 27 |
 | `ridge-sweep.json` | a ridge-penalty sweep on a regression dataset (use `--rank-by mae` for the error) |
 
 Everything is deterministic: run a command twice and you get the same numbers, and

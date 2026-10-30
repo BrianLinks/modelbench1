@@ -103,6 +103,25 @@ class ExampleTests(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         self.assertTrue(1 <= len(json.loads(out)["entries"]) <= 8)
 
+    def test_the_halving_example_narrows_twelve_forests_to_one(self):
+        code, out, err = self.cli(
+            "halve",
+            self.example("forest-halving.json"),
+            "--data",
+            self.blobs,
+            "--label",
+            "label",
+            "--json",
+        )
+        self.assertEqual((code, err), (0, ""))
+        data = json.loads(out)
+        self.assertEqual([r["resource_value"] for r in data["rounds"]], [3, 9, 27])
+        sizes = [len(r["entries"]) for r in data["rounds"]]
+        self.assertEqual(sizes[1], -(-sizes[0] // 3))
+        self.assertEqual(sizes[2], -(-sizes[1] // 3))
+        self.assertLessEqual(sizes[0], 12)
+        self.assertEqual(data["best"], data["rounds"][-1]["entries"][0]["run_id"])
+
     def test_the_ridge_sweep_prefers_a_small_penalty(self):
         code, out, err = self.cli(
             "sweep",

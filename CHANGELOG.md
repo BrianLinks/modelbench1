@@ -4,9 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-10-29
-
 ### Added
+- `modelbench halve`: successive halving over a seeded search space, with one model parameter
+  (such as `n_estimators`) as the budget; each step is an ordinary recorded run.
 - `calibrated`: wraps any classifier with Platt or isotonic probability calibration fitted on
   out-of-fold predictions, seeded and repeatable.
 - `gradient_boosting` and `gradient_boosting_regressor`: gradient-boosted regression trees for
@@ -16,6 +16,10 @@ All notable changes to this project are documented here.
 - `random_forest` and `random_forest_regressor`: bagged trees that look at a random subset of
   features at every split (seeded, repeatable), with an out-of-bag score. `bagged_trees` reports
   `oob_score_` too.
+
+## [0.4.0] - 2026-10-29
+
+### Added
 - Dashboard script (`static/dashboard.js`, ES5, no dependencies): sort the run list by any column
   or metric, filter it by text, read the value under the pointer on charts, click a line in the
   all-parameters chart to open the run, switch the confusion matrix between counts and percent of

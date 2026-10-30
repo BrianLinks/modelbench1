@@ -1,0 +1,17 @@
+{
+  "config": {
+    "experiment_id": "blobs-forest-halving",
+    "model": "random_forest",
+    "seed": 11,
+    "dataset_id": "blobs",
+    "metrics": ["accuracy", "log_loss"],
+    "params": {"max_features": "sqrt"}
+  },
+  "space": {
+    "max_depth": {"int": [1, 8]},
+    "min_samples_leaf": {"int": [1, 6]},
+    "min_samples_split": {"int": [2, 10]}
+  },
+  "candidates": 12,
+  "halving": {"resource": "n_estimators", "min_resource": 3, "max_resource": 27, "eta": 3}
+}

@@ -23,6 +23,7 @@ from .dashboard import DEFAULT_PORT, serve
 from .datasets import make_version, read_csv
 from .errors import CliError, MetricError, ModelBenchError
 from .export import export_json, export_metrics_csv, export_runs, write_text_atomic
+from .halving import HalvingResult, load_halving, run_halving
 from .importance import ImportanceResult, permutation_importance
 from .importer import import_runs_json, parse_document, parse_runs, read_import_file
 from .learning_curve import DEFAULT_FRACTIONS, LearningCurve, learning_curve
@@ -218,6 +219,98 @@ def cmd_search(args: argparse.Namespace) -> int:
             stop_on_error=args.stop_on_error,
         )
     return _print_sweep(result, config.metrics, args.json, "search")
+
+
+def _render_halving(result: HalvingResult, metrics: Sequence[str]) -> str:
+    direction = "higher" if higher_is_better(result.rank_metric) else "lower"
+    lines = [
+        f"halving {result.experiment_id}: {result.n_runs} runs in {len(result.rounds)} round(s), "
+        f"ranked by {result.rank_metric} ({direction} is better)"
+    ]
+    for number, finished in enumerate(result.rounds, start=1):
+        entries = finished.result.entries
+        kept = set(finished.kept)
+        lines += [
+            "",
+            f"round {number}: {result.resource}={finished.resource_value}, {len(entries)} run(s)",
+        ]
+        rows = [["rank", "run", "params", *metrics, "next"]]
+        for rank, entry in finished.result.ranked_entries():
+            cells = [str(rank) if rank else "-", entry.run_id or "-", _params_text(entry.params)]
+            cells += [_fmt(entry.metrics[m]) if m in entry.metrics else "-" for m in metrics]
+            cells.append("yes" if entry.run_id in kept else "")
+            rows.append([_safe(cell) for cell in cells])
+        lines.append(_table(rows))
+        for entry in finished.result.failed:
+            lines.append(f"failed  {_safe(_params_text(entry.params))}: {_safe(entry.error)}")
+    best = result.best()
+    lines.append("")
+    lines.append(
+        f"best {best.run_id}  {_safe(_params_text(best.params))}" if best else "no run succeeded"
+    )
+    return "\n".join(lines)
+
+
+def cmd_halve(args: argparse.Namespace) -> int:
+    config, space, candidates, spec = load_halving(args.halving)
+    table = read_csv(args.data)
+    with Store(args.db) as store:
+        result = run_halving(
+            store,
+            config,
+            space,
+            candidates,
+            spec,
+            table,
+            args.label,
+            feature_columns=_split_list(args.features, "--features"),
+            artifact_dir=args.artifact_dir,
+            reuse_existing=not args.no_reuse,
+            rank_by=args.rank_by,
+        )
+    failed = any(r.result.failed for r in result.rounds)
+    if args.json:
+        best = result.best()
+        print(
+            _json(
+                {
+                    "experiment_id": result.experiment_id,
+                    "rank_metric": result.rank_metric,
+                    "resource": result.resource,
+                    "best": best.run_id if best else None,
+                    "rounds": [
+                        {
+                            "resource_value": r.resource_value,
+                            "kept": list(r.kept),
+                            "entries": [
+                                {
+                                    "params": e.params,
+                                    "run_id": e.run_id,
+                                    "rank": next(
+                                        (
+                                            k.rank
+                                            for k in r.result.ranking.ranked
+                                            if k.run_id == e.run_id
+                                        ),
+                                        None,
+                                    )
+                                    if e.error is None
+                                    else None,
+                                    "reused": e.reused,
+                                    "metrics": e.metrics,
+                                    "error": e.error,
+                                }
+                                for e in r.result.entries
+                            ],
+                        }
+                        for r in result.rounds
+                    ],
+                }
+            )
+        )
+    else:
+        print(_render_halving(result, config.metrics))
+    return 1 if failed else 0
 
 
 def _print_sweep(
@@ -675,6 +768,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rank-by", help="metric to rank by (default: the config's first metric)")
     p.add_argument("--no-reuse", action="store_true", help="re-run draws already stored")
     p.add_argument("--stop-on-error", action="store_true", help="stop at the first failure")
+
+    p = add("halve", cmd_halve, "successive halving: many draws cheaply, the best ones fully", True)
+    p.add_argument(
+        "halving",
+        help='halving file: {"config": {...}, "space": {...}, "candidates": N, "halving": {...}}',
+    )
+    p.add_argument("--data", required=True, help="CSV file")
+    p.add_argument("--label", required=True, help="label column")
+    p.add_argument("--features", help="comma-separated feature columns (default: all others)")
+    p.add_argument("--artifact-dir", help="also write each run's predictions here")
+    p.add_argument("--rank-by", help="metric to rank by (default: the config's first metric)")
+    p.add_argument("--no-reuse", action="store_true", help="re-run draws already stored")
 
     p = add("list", cmd_list, "list runs, newest first", True)
     p.add_argument("--experiment")
