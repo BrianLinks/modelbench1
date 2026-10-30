@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-30
+
 ### Added
 - `modelbench halve`: successive halving over a seeded search space, with one model parameter
   (such as `n_estimators`) as the budget; each step is an ordinary recorded run.
