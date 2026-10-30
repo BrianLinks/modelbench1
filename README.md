@@ -15,7 +15,7 @@ Local experiment tracking and model comparison, with no online ML platform and n
   tags) with migrations and a strict run lifecycle
 - `modelbench.models`: pure-Python classifiers behind one interface and a name registry:
   `majority`, `stratified`, `knn`, `gaussian_nb`, `decision_tree`, `logistic_regression`,
-  `bagged_trees`, `random_forest`, `perceptron`
+  `bagged_trees`, `random_forest`, `gradient_boosting`, `perceptron`
 - `modelbench.compare`: parameter diffs, metric deltas, ranking, and a paired bootstrap
 - `modelbench.run_comparison`: `compare_runs` over completed runs in the store
 - `modelbench.runner`: `run_experiment` splits a dataset, fits a model, scores it, and records
@@ -29,7 +29,8 @@ Local experiment tracking and model comparison, with no online ML platform and n
 - `modelbench.dashboard`: a read-only local web dashboard (`modelbench serve`)
 - `modelbench.samples`: seeded synthetic datasets and a demo that fills a database with runs
 
-Regression models (`mean`, `linear_regression`, `knn_regressor`, `decision_tree_regressor`, `random_forest_regressor`) run
+Regression models (`mean`, `linear_regression`, `knn_regressor`, `decision_tree_regressor`, `random_forest_regressor`,
+`gradient_boosting_regressor`) run
 through the same runner, with `mae`, `mse`, `rmse` and `r2`.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit and
@@ -517,6 +518,7 @@ All classifiers share `fit(X, y)`, `predict(X)`, and `predict_proba(X)`. Probabi
 | `decision_tree` | CART with Gini impurity: `max_depth` (default 5, `None` for unlimited), `min_samples_split`, `min_samples_leaf`; leaves predict class fractions |
 | `bagged_trees` | Averages the class fractions of `n_estimators` (default 25, at most 500) decision trees, each fitted to a bootstrap sample drawn from a generator derived from `seed` (the runner derives it from the run seed, as for `stratified`); takes the tree parameters. Bagging only: every split sees every feature |
 | `random_forest` | `bagged_trees` whose every split looks at `max_features` randomly chosen features ("sqrt" by default, "log2", `None`, a whole number or a fraction); `n_estimators` defaults to 50, `max_depth` to unlimited. If the chosen features give no valid split the rest are tried. `oob_score_` is the accuracy on training rows using only trees that never saw them. The runner derives `seed` from the run seed |
+| `gradient_boosting` | Boosted regression trees on the multinomial log loss: `n_estimators` (default 100, at most 1000), `learning_rate` (default 0.1, in (0, 1]), `max_depth` (default 3), `min_samples_split`, `min_samples_leaf`, `subsample` (default 1.0; below 1 each stage sees a seeded random share of the rows) and `seed`. One tree per class per stage with Friedman's Newton leaf values; probabilities are a softmax of the scores, so `log_loss` is meaningful. `train_loss_` lists the training log loss after each stage. `seed` only matters when `subsample` is below 1 (the runner still derives and records it) |
 | `perceptron` | Multiclass averaged perceptron: `max_iter` epochs (default 20, at most 10000) and `seed` for the visiting order (derived from the run seed by the runner). Features are standardised; the weights used are the average over all steps; `converged_` is true only when an epoch makes no mistakes (separable data). No learning rate exists because only the weights' direction matters. `predict_proba` is a softmax of the scores, ordered correctly but not calibrated, so `log_loss` is only a rough guide |
 | `logistic_regression` | Multinomial (softmax) with an L2 penalty: `l2` (default 0.01), `max_iter`, `tol`; features are standardised internally |
 
@@ -532,6 +534,7 @@ metrics `mae`, `mse`, `rmse` and `r2`. A model's kind decides which metrics are 
 | `knn_regressor` | Mean target of the `k` nearest rows (`k`, `metric`, `weights` as for `knn`); ties go to the earlier training row; an exact match overrides distance weighting. Scale features first |
 | `decision_tree_regressor` | CART regression tree minimising squared error: `max_depth` (default 5, `null` for unlimited), `min_samples_split`, `min_samples_leaf`. Same deterministic split rules as `decision_tree`; leaves predict the mean target; `describe()` prints the rules |
 | `random_forest_regressor` | Bootstrap regression trees whose splits look at `max_features` random features (default 1.0, all of them, which is plain bagging; smaller values can hurt when there are few features); `n_estimators` defaults to 50; predictions are the mean of the trees; `oob_score_` is the out-of-bag R² (None when it cannot be computed) |
+| `gradient_boosting_regressor` | Squared-error boosting from the mean target: same parameters as `gradient_boosting`; each stage fits a tree to the residuals. `train_loss_` lists the training MSE per stage (it never rises when `subsample` is 1) and `staged_predict(X)` gives predictions after each stage |
 | `linear_regression` | Closed-form least squares (Cholesky) on standardised features: `l2` (default 0). Constant columns get zero weight; collinear features with `l2=0` are an error that suggests `l2>0`. `coef_` and `intercept_` are in original units |
 
 ```python

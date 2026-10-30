@@ -225,3 +225,49 @@ class InterfaceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LeafAccessTests(unittest.TestCase):
+    def stump(self):
+        tree = DecisionTreeRegressor(max_depth=1)
+        tree.fit([[0.0], [1.0], [10.0], [11.0]], [0.0, 0.0, 5.0, 5.0])
+        return tree
+
+    def test_apply_numbers_the_leaves_left_first(self):
+        tree = self.stump()
+        self.assertEqual(tree.n_leaves_, 2)
+        self.assertEqual(tree.apply([[0.0], [11.0], [1.0], [5.0], [6.0]]), [0, 1, 0, 0, 1])
+
+    def test_a_single_leaf_tree_has_one_leaf(self):
+        tree = DecisionTreeRegressor()
+        tree.fit([[1.0], [2.0]], [3.0, 3.0])
+        self.assertEqual(tree.apply([[9.0], [-9.0]]), [0, 0])
+
+    def test_leaf_ids_cover_every_leaf_of_a_deep_tree(self):
+        rng = random.Random(1)
+        X = [[rng.random(), rng.random()] for _ in range(60)]
+        tree = DecisionTreeRegressor(max_depth=4)
+        tree.fit(X, [a * 3 + b for a, b in X])
+        ids = tree.apply(X)
+        self.assertEqual(set(ids), set(range(tree.n_leaves_)))
+
+    def test_set_leaf_values_changes_predictions_leaf_by_leaf(self):
+        tree = self.stump()
+        tree.set_leaf_values([100.0, -7.5])
+        self.assertEqual(tree.predict([[0.0], [1.0], [10.0], [50.0]]), [100.0, 100.0, -7.5, -7.5])
+        self.assertIn("predict -7.5", tree.describe())
+
+    def test_set_leaf_values_checks_its_input(self):
+        tree = self.stump()
+        for values in ([1.0], [1.0, 2.0, 3.0], [1.0, float("nan")], [float("inf"), 0.0]):
+            with self.subTest(values=values), self.assertRaises(ModelError):
+                tree.set_leaf_values(values)
+        self.assertEqual(tree.predict([[0.0], [11.0]]), [0.0, 5.0])  # nothing changed
+        with self.assertRaises(ModelError):
+            DecisionTreeRegressor().set_leaf_values([1.0])
+
+    def test_apply_checks_fit_and_width(self):
+        with self.assertRaises(ModelError):
+            DecisionTreeRegressor().apply([[1.0]])
+        with self.assertRaises(ModelError):
+            self.stump().apply([[1.0, 2.0]])

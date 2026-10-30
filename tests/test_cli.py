@@ -621,6 +621,8 @@ class ErrorHandlingTests(CliTestCase):
                 "decision_tree  classification",
                 "decision_tree_regressor  regression",
                 "gaussian_nb  classification",
+                "gradient_boosting  classification",
+                "gradient_boosting_regressor  regression",
                 "knn  classification",
                 "knn_regressor  regression",
                 "linear_regression  regression",

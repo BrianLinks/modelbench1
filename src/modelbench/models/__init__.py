@@ -9,6 +9,8 @@ from .bagged_trees import BaggedTrees
 from .base import Classifier, Regressor
 from .decision_tree import DecisionTreeClassifier
 from .decision_tree_regressor import DecisionTreeRegressor
+from .gradient_boosting import GradientBoostingClassifier
+from .gradient_boosting_regressor import GradientBoostingRegressor
 from .knn import KNNClassifier
 from .knn_regressor import KNNRegressor
 from .linear_regression import LinearRegression
@@ -31,6 +33,7 @@ REGISTRY: dict[str, type[Classifier]] = {
     BaggedTrees.name: BaggedTrees,
     Perceptron.name: Perceptron,
     RandomForest.name: RandomForest,
+    GradientBoostingClassifier.name: GradientBoostingClassifier,
 }
 
 REGRESSORS: dict[str, type[Regressor]] = {
@@ -39,6 +42,7 @@ REGRESSORS: dict[str, type[Regressor]] = {
     KNNRegressor.name: KNNRegressor,
     DecisionTreeRegressor.name: DecisionTreeRegressor,
     RandomForestRegressor.name: RandomForestRegressor,
+    GradientBoostingRegressor.name: GradientBoostingRegressor,
 }
 
 
@@ -98,6 +102,8 @@ __all__ = [
     "DecisionTreeClassifier",
     "DecisionTreeRegressor",
     "GaussianNB",
+    "GradientBoostingClassifier",
+    "GradientBoostingRegressor",
     "KNNClassifier",
     "KNNRegressor",
     "LinearRegression",

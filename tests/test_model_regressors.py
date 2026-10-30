@@ -196,6 +196,7 @@ class RegistryTests(unittest.TestCase):
             available_regressors(),
             (
                 "decision_tree_regressor",
+                "gradient_boosting_regressor",
                 "knn_regressor",
                 "linear_regression",
                 "mean",

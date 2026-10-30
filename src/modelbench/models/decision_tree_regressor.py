@@ -15,19 +15,21 @@ import math
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from .base import Matrix, Regressor
+from ..errors import ModelError
+from .base import Matrix, Regressor, check_features
 from .decision_tree import _check_int
 
 _TIE_TOLERANCE = 1e-12  # relative to the node's total squared deviation
 
 
 class _Node:
-    __slots__ = ("feature", "left", "mean", "n", "right", "threshold")
+    __slots__ = ("feature", "leaf_id", "left", "mean", "n", "right", "threshold")
 
     def __init__(self, mean: float, n: int) -> None:
         self.mean = mean
         self.n = n
         self.feature = -1  # -1 marks a leaf
+        self.leaf_id = -1  # position among the leaves once the tree is built, else -1
         self.threshold = 0.0
         self.left: _Node | None = None
         self.right: _Node | None = None
@@ -51,6 +53,7 @@ class DecisionTreeRegressor(Regressor):
         self._root: _Node | None = None
         self.depth_ = 0
         self.n_leaves_ = 0
+        self._leaf_nodes: list[_Node] = []
         # Set by ensembles that look at a subset of features at each split; not a parameter.
         self._feature_chooser: Callable[[int], Sequence[int]] | None = None
 
@@ -72,6 +75,7 @@ class DecisionTreeRegressor(Regressor):
         stack: list[tuple[_Node, list[int], int]] = [(root, everything, 0)]
         depth = 0
         leaves = 0
+        leaf_nodes: list[_Node] = []
         while stack:
             node, rows, level = stack.pop()
             depth = max(depth, level)
@@ -81,6 +85,8 @@ class DecisionTreeRegressor(Regressor):
             if not constant and allowed and node.n >= self.min_samples_split:
                 split = self._split_for(X, y, rows, node.mean)
             if split is None:
+                node.leaf_id = leaves
+                leaf_nodes.append(node)
                 leaves += 1
                 continue
             node.feature, node.threshold = split
@@ -93,6 +99,7 @@ class DecisionTreeRegressor(Regressor):
         self._root = root
         self.depth_ = depth
         self.n_leaves_ = leaves
+        self._leaf_nodes = leaf_nodes
 
     def _split_for(
         self, X: Matrix, y: list[float], rows: list[int], mean: float
@@ -151,6 +158,37 @@ class DecisionTreeRegressor(Regressor):
 
     def _predict(self, X: Matrix) -> list[float]:
         return [self._leaf_for(row).mean for row in X]
+
+    def apply(self, X: Sequence[Sequence[float]]) -> list[int]:
+        """The leaf each row lands in, as a number from 0 to `n_leaves_ - 1`.
+
+        Leaves are numbered in the order the builder finished them, which depends only on the
+        data. Used by boosting to set its own leaf values.
+        """
+        rows = self._checked_rows(X)
+        return [self._leaf_for(row).leaf_id for row in rows]
+
+    def set_leaf_values(self, values: Sequence[float]) -> None:
+        """Replace what each leaf predicts, one finite number per leaf in `apply` order."""
+        if self._root is None:
+            raise ModelError(f"{self.name} has not been fitted yet")
+        if len(values) != self.n_leaves_:
+            raise ModelError(f"expected {self.n_leaves_} leaf values, got {len(values)}")
+        numbers = [float(v) for v in values]
+        if not all(math.isfinite(v) for v in numbers):
+            raise ModelError("leaf values must be finite")
+        for node, value in zip(self._leaf_nodes, numbers, strict=True):
+            node.mean = value
+
+    def _checked_rows(self, X: Sequence[Sequence[float]]) -> Matrix:
+        if self._n_features is None:
+            raise ModelError(f"{self.name} has not been fitted yet")
+        rows = check_features(X)
+        if len(rows[0]) != self._n_features:
+            raise ModelError(
+                f"model was fitted with {self._n_features} features, got {len(rows[0])}"
+            )
+        return rows
 
     def describe(self) -> str:
         """The fitted tree as indented rules, one line per node."""

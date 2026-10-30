@@ -7,6 +7,10 @@ All notable changes to this project are documented here.
 ## [0.4.0] - 2026-10-29
 
 ### Added
+- `gradient_boosting` and `gradient_boosting_regressor`: gradient-boosted regression trees for
+  classification (multinomial log loss, Newton leaf values) and squared-error regression, with
+  `learning_rate`, `subsample`, a per-stage training loss and staged predictions.
+- `DecisionTreeRegressor.apply` and `set_leaf_values`.
 - `random_forest` and `random_forest_regressor`: bagged trees that look at a random subset of
   features at every split (seeded, repeatable), with an out-of-bag score. `bagged_trees` reports
   `oob_score_` too.
