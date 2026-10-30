@@ -618,6 +618,7 @@ class ErrorHandlingTests(CliTestCase):
             out.splitlines(),
             [
                 "bagged_trees  classification",
+                "calibrated  classification",
                 "decision_tree  classification",
                 "decision_tree_regressor  regression",
                 "gaussian_nb  classification",

@@ -7,6 +7,7 @@ from typing import Any
 from ..errors import ModelError
 from .bagged_trees import BaggedTrees
 from .base import Classifier, Regressor
+from .calibration import CalibratedClassifier
 from .decision_tree import DecisionTreeClassifier
 from .decision_tree_regressor import DecisionTreeRegressor
 from .gradient_boosting import GradientBoostingClassifier
@@ -34,6 +35,7 @@ REGISTRY: dict[str, type[Classifier]] = {
     Perceptron.name: Perceptron,
     RandomForest.name: RandomForest,
     GradientBoostingClassifier.name: GradientBoostingClassifier,
+    CalibratedClassifier.name: CalibratedClassifier,
 }
 
 REGRESSORS: dict[str, type[Regressor]] = {
@@ -98,6 +100,7 @@ __all__ = [
     "REGISTRY",
     "REGRESSORS",
     "BaggedTrees",
+    "CalibratedClassifier",
     "Classifier",
     "DecisionTreeClassifier",
     "DecisionTreeRegressor",

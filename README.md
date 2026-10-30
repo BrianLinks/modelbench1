@@ -15,7 +15,8 @@ Local experiment tracking and model comparison, with no online ML platform and n
   tags) with migrations and a strict run lifecycle
 - `modelbench.models`: pure-Python classifiers behind one interface and a name registry:
   `majority`, `stratified`, `knn`, `gaussian_nb`, `decision_tree`, `logistic_regression`,
-  `bagged_trees`, `random_forest`, `gradient_boosting`, `perceptron`
+  `bagged_trees`, `random_forest`, `gradient_boosting`, `calibrated`,
+  `perceptron`
 - `modelbench.compare`: parameter diffs, metric deltas, ranking, and a paired bootstrap
 - `modelbench.run_comparison`: `compare_runs` over completed runs in the store
 - `modelbench.runner`: `run_experiment` splits a dataset, fits a model, scores it, and records
@@ -519,6 +520,7 @@ All classifiers share `fit(X, y)`, `predict(X)`, and `predict_proba(X)`. Probabi
 | `bagged_trees` | Averages the class fractions of `n_estimators` (default 25, at most 500) decision trees, each fitted to a bootstrap sample drawn from a generator derived from `seed` (the runner derives it from the run seed, as for `stratified`); takes the tree parameters. Bagging only: every split sees every feature |
 | `random_forest` | `bagged_trees` whose every split looks at `max_features` randomly chosen features ("sqrt" by default, "log2", `None`, a whole number or a fraction); `n_estimators` defaults to 50, `max_depth` to unlimited. If the chosen features give no valid split the rest are tried. `oob_score_` is the accuracy on training rows using only trees that never saw them. The runner derives `seed` from the run seed |
 | `gradient_boosting` | Boosted regression trees on the multinomial log loss: `n_estimators` (default 100, at most 1000), `learning_rate` (default 0.1, in (0, 1]), `max_depth` (default 3), `min_samples_split`, `min_samples_leaf`, `subsample` (default 1.0; below 1 each stage sees a seeded random share of the rows) and `seed`. One tree per class per stage with Friedman's Newton leaf values; probabilities are a softmax of the scores, so `log_loss` is meaningful. `train_loss_` lists the training log loss after each stage. `seed` only matters when `subsample` is below 1 (the runner still derives and records it) |
+| `calibrated` | Wraps any classifier (`base`, with `base_params`) so its probabilities match observed frequencies. The base is fitted on `folds` (default 3) stratified, seeded folds; its held-out probabilities train one calibrator per class (`method`: `sigmoid`, Platt scaling, the default, or `isotonic`, which needs more rows), and the rows are renormalised. Prediction uses the base refitted on all rows. If the base takes a `seed` it gets one derived from this model's `seed`. `predict_proba_uncalibrated` returns the base's own probabilities. Outcomes are smoothed as Platt suggested, so probabilities are never exactly 0 or 1 |
 | `perceptron` | Multiclass averaged perceptron: `max_iter` epochs (default 20, at most 10000) and `seed` for the visiting order (derived from the run seed by the runner). Features are standardised; the weights used are the average over all steps; `converged_` is true only when an epoch makes no mistakes (separable data). No learning rate exists because only the weights' direction matters. `predict_proba` is a softmax of the scores, ordered correctly but not calibrated, so `log_loss` is only a rough guide |
 | `logistic_regression` | Multinomial (softmax) with an L2 penalty: `l2` (default 0.01), `max_iter`, `tol`; features are standardised internally |
 

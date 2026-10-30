@@ -7,6 +7,8 @@ All notable changes to this project are documented here.
 ## [0.4.0] - 2026-10-29
 
 ### Added
+- `calibrated`: wraps any classifier with Platt or isotonic probability calibration fitted on
+  out-of-fold predictions, seeded and repeatable.
 - `gradient_boosting` and `gradient_boosting_regressor`: gradient-boosted regression trees for
   classification (multinomial log loss, Newton leaf values) and squared-error regression, with
   `learning_rate`, `subsample`, a per-stage training loss and staged predictions.
