@@ -6,7 +6,8 @@
 A header is `type(scope)!: subject`, where the type is one of TYPES, the scope is optional, and
 the subject is non-empty, does not end with a full stop, and keeps the whole header within 72
 characters. A blank line must separate the header from any body. Merge commits and the
-automatic messages git writes for `fixup!`, `squash!` and `amend!` are skipped. Exit code 0
+automatic messages git writes for `fixup!`, `squash!` and `amend!` are skipped, as are the
+release commits, whose whole header is `Release X.Y.Z`. Exit code 0
 means every message passed, 1 means at least one failed, 2 means the input could not be read.
 """
 
@@ -36,6 +37,7 @@ _HEADER = re.compile(
     r"^(?P<type>[a-z]+)(?:\((?P<scope>[a-z0-9][a-z0-9._/-]*)\))?(?P<bang>!)?: (?P<subject>.*)$"
 )
 _AUTOMATIC = ("Merge ", "fixup! ", "squash! ", "amend! ")
+_RELEASE = re.compile(r"^Release \d+\.\d+\.\d+$")
 
 
 def check_message(message: str) -> list[str]:
@@ -44,7 +46,7 @@ def check_message(message: str) -> list[str]:
     if not lines or not lines[0].strip():
         return ["the message is empty"]
     header = lines[0]
-    if header.startswith(_AUTOMATIC):
+    if header.startswith(_AUTOMATIC) or _RELEASE.match(header):
         return []
     problems: list[str] = []
     found = _HEADER.match(header)

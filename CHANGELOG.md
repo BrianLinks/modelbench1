@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-31
+
 ### Added
 - `time_ordered` config flag: rows keep their order, a single split trains on the past and tests
   on the end, and `cv_folds` becomes expanding-window validation. Not combinable with `stratify`;

@@ -72,6 +72,12 @@ class CheckMessageTests(unittest.TestCase):
         for message in ("Merge branch 'x' into main", "fixup! feat: a", "squash! fix: b"):
             self.assertEqual(check_message(message), [], message)
 
+    def test_release_commits_are_skipped_only_in_their_exact_form(self):
+        self.assertEqual(check_message("Release 0.7.0\n\nNotes."), [])
+        for message in ("Release 0.7", "Release 0.7.0 now", "release 0.7.0", "Release x.y.z"):
+            with self.subTest(message=message):
+                self.assertTrue(check_message(message))
+
     def test_several_problems_are_all_reported(self):
         problems = check_message("Added a very " + "long " * 20 + "thing.")
         self.assertGreaterEqual(len(problems), 2)
