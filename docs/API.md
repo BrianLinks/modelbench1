@@ -31,8 +31,8 @@ assert config.config_hash() == ExperimentConfig.from_dict(config.to_dict()).conf
 
 The config hash covers every setting that changes results and ignores the `experiment_id`
 label, so two experiments with the same settings share a hash. `test_fraction` (default 0.2),
-`stratify` (default false), `cv_folds` (default none, 2 to 50) and `time_ordered` (default false) and `time_gap` (default 0)
-shape the evaluation.
+`stratify` (default false), `cv_folds` (default none, 2 to 50), `time_ordered` (default false),
+`time_gap` (default 0) and `group_column` (default none) shape the evaluation.
 
 ## Running an experiment
 

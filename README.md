@@ -500,6 +500,24 @@ single split. Rows are shuffled with the run's seed and dealt into folds (strati
   matrix is pooled over all folds, and `predictions.json` holds one entry per fold.
 - Reproducibility checks compare the predictions hash and the summary metrics.
 
+## Grouped data
+
+When several rows come from the same subject, patient, site or document, a shuffled split puts
+siblings on both sides and the score measures memory, not generalisation. Set
+`"group_column": "<column>"` and rows that share a value always stay together.
+
+- Without `cv_folds`, groups are shuffled with the seed and moved to the test set until it holds
+  at least `test_fraction` of the rows (whole groups only, so it can be larger; the last remaining
+  group always trains). At least two groups are needed.
+- With `cv_folds` = k, every group is tested in exactly one fold (at least k groups). Groups are
+  placed largest first into the fold holding the fewest rows, equal sizes in seeded random order,
+  so folds are balanced by rows rather than by group count.
+- The group column is left out of the default features (and cannot be listed as a feature or be
+  the label). Empty group values are an error.
+- It cannot be combined with `stratify` or `time_ordered`; `nested` and `select` refuse it. The
+  setting is part of the config hash and sets a `group_column` tag. The group values are part of
+  the dataset version, so changing them changes it.
+
 ## Time-ordered data
 
 Shuffled splits leak the future into the past when rows are a time series. Set

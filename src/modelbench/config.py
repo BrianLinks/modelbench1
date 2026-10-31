@@ -59,6 +59,7 @@ _CONFIG_KEYS = {
     "cv_folds",
     "time_ordered",
     "time_gap",
+    "group_column",
     "preprocess",
 }
 _REQUIRED_KEYS = ("experiment_id", "model", "seed", "dataset_id", "metrics")
@@ -107,6 +108,7 @@ class ExperimentConfig:
     cv_folds: int | None = None
     time_ordered: bool = False
     time_gap: int = 0
+    group_column: str | None = None
     preprocess: PreprocessSpec | None = None
 
     def __post_init__(self) -> None:
@@ -142,6 +144,12 @@ class ExperimentConfig:
             raise ConfigError(f"time_gap must be a whole number from 0 to {MAX_TIME_GAP}")
         if gap and not self.time_ordered:
             raise ConfigError("time_gap only applies when time_ordered is true")
+        group = self.group_column
+        if group is not None:
+            if not isinstance(group, str) or group.strip() == "" or len(group) > 200:
+                raise ConfigError("group_column must be null or a column name")
+            if self.stratify or self.time_ordered:
+                raise ConfigError("group_column cannot be combined with stratify or time_ordered")
         if self.preprocess is not None and not isinstance(self.preprocess, PreprocessSpec):
             raise ConfigError("preprocess must be a PreprocessSpec or null")
         if not isinstance(self.metrics, tuple) or not self.metrics:
@@ -174,6 +182,8 @@ class ExperimentConfig:
             data["time_ordered"] = True
         if self.time_gap:
             data["time_gap"] = self.time_gap
+        if self.group_column is not None:
+            data["group_column"] = self.group_column
         if self.preprocess is not None:
             data["preprocess"] = self.preprocess.to_dict()
         return data
@@ -219,6 +229,7 @@ class ExperimentConfig:
             cv_folds=data.get("cv_folds"),
             time_ordered=data.get("time_ordered", False),
             time_gap=data.get("time_gap", 0),
+            group_column=data.get("group_column"),
             preprocess=(
                 PreprocessSpec.from_dict(data["preprocess"])
                 if data.get("preprocess") is not None

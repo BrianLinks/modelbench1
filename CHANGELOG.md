@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- `group_column` config setting: grouped train/test and k-fold splits where rows sharing a value
+  never straddle train and test. The group column is excluded from default features. Not
+  combinable with `stratify` or `time_ordered`; `nested` and `select` refuse it.
+
 ## [0.8.0] - 2026-10-31
 
 ### Added

@@ -1,0 +1,10 @@
+{
+  "experiment_id": "subjects-grouped",
+  "model": "knn",
+  "seed": 7,
+  "dataset_id": "subjects",
+  "metrics": ["accuracy"],
+  "params": {"k": 5},
+  "cv_folds": 4,
+  "group_column": "subject"
+}

@@ -24,6 +24,8 @@ from .datasets import (
     DatasetVersion,
     Table,
     expanding_window_indices,
+    group_kfold_indices,
+    group_split,
     kfold_indices,
     make_version,
     ordered_split,
@@ -96,6 +98,7 @@ def run_experiment(
     """
     kind = model_kind(config.model)
     _check_metrics(config.metrics, kind)
+    feature_columns = resolve_features(config, table, label_column, feature_columns)
     folds = load_folds(config, table, label_column, feature_columns)
     dataset = make_version(config.dataset_id, table, label_column)
     for fold in folds:  # every fold must be scoreable before a run exists
@@ -153,11 +156,18 @@ def load_folds(
     kind = model_kind(config.model)
     if kind == "regression" and config.stratify:
         raise RunnerError("stratify applies to classification; regression has no classes")
+    feature_columns = resolve_features(config, table, label_column, feature_columns)
     names, X, cells, y = _features_and_labels(
         table, label_column, feature_columns, kind == "regression", config
     )
     labels_for_split = y if config.stratify else None
-    if config.time_ordered:
+    if config.group_column is not None:
+        groups = table.column(config.group_column)
+        if config.cv_folds is None:
+            splits = [group_split(groups, config.test_fraction, config.seed)]
+        else:
+            splits = group_kfold_indices(groups, config.cv_folds, config.seed)
+    elif config.time_ordered:
         if config.cv_folds is None:
             splits = [ordered_split(len(table), config.test_fraction, config.time_gap)]
         else:
@@ -303,6 +313,8 @@ def _execute(
         n_train, n_test = len(folds[0].train_y), len(folds[0].test_y)
     if config.time_ordered:
         store.set_tag(run_id, "time_ordered", "true")
+    if config.group_column is not None:
+        store.set_tag(run_id, "group_column", config.group_column)
     store.set_tag(run_id, "n_train", str(n_train))
     store.set_tag(run_id, "n_test", str(n_test))
     if config.preprocess is not None:  # the width after encoding is not the number of columns
@@ -344,6 +356,28 @@ def _check_metrics(names: Sequence[str], kind: str = "classification") -> None:
     unknown = [n for n in names if n not in allowed]
     if unknown:
         raise RunnerError(f"unsupported metric(s) {unknown}")
+
+
+def resolve_features(
+    config: ExperimentConfig,
+    table: Table,
+    label_column: str,
+    feature_columns: Sequence[str] | None,
+) -> Sequence[str] | None:
+    """The feature list to use. With a group column, the default features leave it out, because
+    a group identifier says nothing about the target and would let a model memorise groups."""
+    group = config.group_column
+    if group is None:
+        return feature_columns
+    if group not in table.columns:
+        raise RunnerError(f"group column {group!r} is not in the dataset")
+    if group == label_column:
+        raise RunnerError("the group column cannot also be the label")
+    if feature_columns is None:
+        return [c for c in table.columns if c not in (label_column, group)]
+    if group in feature_columns:
+        raise RunnerError("the group column cannot also be a feature")
+    return feature_columns
 
 
 def _feature_names(

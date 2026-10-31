@@ -81,6 +81,25 @@ class ExampleTests(unittest.TestCase):
         )  # 4 folds over 5 blocks of 24 rows; block 0 only trains
         self.assertIn("rmse_std", data["metrics"])
 
+    def test_grouped_validation_keeps_subjects_together(self):
+        lines = self.blobs.read_text(encoding="utf-8").splitlines()
+        grouped = self.dir / "subjects.csv"
+        body = [f"s{i % 10},{line}" for i, line in enumerate(lines[1:])]
+        grouped.write_text("\n".join(["subject," + lines[0], *body]) + "\n", encoding="utf-8")
+        code, out, err = self.cli(
+            "run",
+            self.example("subjects-grouped.json"),
+            "--data",
+            grouped,
+            "--label",
+            "label",
+            "--json",
+        )
+        self.assertEqual((code, err), (0, ""))
+        data = json.loads(out)
+        self.assertEqual(data["n_test"], 120)  # every row of every subject is tested once
+        self.assertGreater(data["metrics"]["accuracy"], 0.9)
+
     def test_cross_validate_the_forest(self):
         code, out, err = self.cli(
             "run",

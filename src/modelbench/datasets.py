@@ -237,6 +237,83 @@ def kfold_indices(
     return result
 
 
+def group_split(
+    groups: Sequence[str], test_fraction: float, seed: int
+) -> tuple[list[int], list[int]]:
+    """Split row indices so that rows sharing a group value land on the same side.
+
+    Groups are shuffled with the seed and moved to the test set one at a time until it holds at
+    least max(1, min(n - 1, round(n * test_fraction))) rows; the last remaining group always
+    stays in train, so the test set can be larger than asked when groups are big. At least two
+    groups are needed. Returns sorted (train, test) lists.
+    """
+    n = len(groups)
+    if n < 2:
+        raise DatasetError(f"need at least 2 rows to split, got {n!r}")
+    fraction = _check_fraction(test_fraction)
+    check_seed(seed)
+    members = _group_members(groups)
+    if len(members) < 2:
+        raise DatasetError("a grouped split needs at least 2 distinct groups")
+    order = list(members)
+    rng_for(seed, "split", "group").shuffle(order)
+    target = max(1, min(n - 1, round(n * fraction)))
+    test: list[int] = []
+    for taken, name in enumerate(order):
+        if len(test) >= target or taken == len(order) - 1:
+            break
+        test.extend(members[name])
+    chosen = set(test)
+    return [i for i in range(n) if i not in chosen], sorted(test)
+
+
+def group_kfold_indices(
+    groups: Sequence[str], folds: int, seed: int
+) -> list[tuple[list[int], list[int]]]:
+    """K-fold splits in which every group is tested in exactly one fold.
+
+    Groups are placed largest first into the fold that currently holds the fewest rows (the
+    lowest fold number on a tie); groups of equal size are taken in a seeded random order. Needs
+    at least `folds` distinct groups. Returns sorted (train, test) lists, one pair per fold.
+    """
+    n = len(groups)
+    if n < 2:
+        raise DatasetError(f"need at least 2 rows to split, got {n!r}")
+    if isinstance(folds, bool) or not isinstance(folds, int) or not 2 <= folds <= MAX_FOLDS:
+        raise DatasetError(f"folds must be a whole number from 2 to {MAX_FOLDS}, got {folds!r}")
+    check_seed(seed)
+    members = _group_members(groups)
+    if len(members) < folds:
+        raise DatasetError(f"cannot make {folds} folds from {len(members)} groups")
+    order = list(members)
+    rng_for(seed, "kfold", "group").shuffle(order)
+    rank = {name: position for position, name in enumerate(order)}
+    sizes = [0] * folds
+    assignment = [0] * n
+    for name in sorted(members, key=lambda g: (-len(members[g]), rank[g])):
+        fold = min(range(folds), key=lambda f: (sizes[f], f))
+        sizes[fold] += len(members[name])
+        for index in members[name]:
+            assignment[index] = fold
+    return [
+        (
+            [i for i in range(n) if assignment[i] != fold],
+            [i for i in range(n) if assignment[i] == fold],
+        )
+        for fold in range(folds)
+    ]
+
+
+def _group_members(groups: Sequence[str]) -> dict[str, list[int]]:
+    """Row indices per group, groups in order of first appearance."""
+    members: dict[str, list[int]] = {}
+    for index, name in enumerate(groups):
+        if not isinstance(name, str) or name.strip() == "":
+            raise DatasetError(f"row {index + 1}: the group value is empty")
+        members.setdefault(name, []).append(index)
+    return members
+
+
 MAX_GAP = 10_000
 
 

@@ -99,7 +99,7 @@ on disk, not in the database.
 ### tags
 
 Free-form key and value facts about a run, such as `n_train`, `n_test`, `predictions_sha256`,
-`model_seed`, `cv_folds`, `time_ordered`, and `confusion_matrix`. A tag value is at most 2000 characters.
+`model_seed`, `cv_folds`, `time_ordered`, `group_column`, and `confusion_matrix`. A tag value is at most 2000 characters.
 
 | column | type | null | meaning |
 |---|---|---|---|

@@ -158,8 +158,8 @@ def run_selection(
     larger = higher_is_better(metric)
     kind = model_kind(config.model)
     _check_metrics(config.metrics, kind)
-    if config.time_ordered:
-        raise SweepError("time_ordered is not supported here; these folds are shuffled")
+    if config.time_ordered or config.group_column is not None:
+        raise SweepError("time_ordered and group_column are not supported here")
     if kind == "regression" and config.stratify:
         raise SweepError("stratify applies to classification; regression has no classes")
     build_model(config)  # a bad model or parameter fails before anything is scored

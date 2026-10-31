@@ -9,7 +9,7 @@ break it, and how to read the result when it does.
 | Input | How it is pinned |
 |---|---|
 | The data | A dataset version: the first 12 characters of a SHA-256 over the column names and every row in order. Row order is part of the content, so reordering rows is a new version. The dataset id is not hashed, and neither is the choice of label column; that choice is recorded with the columns below. |
-| The settings | The config hash: SHA-256 of the canonical config (model, params, seed, split settings, metrics, `cv_folds`, `time_ordered`, `time_gap`, preprocessing). The experiment label is not part of it. `1` and `1.0` hash differently. |
+| The settings | The config hash: SHA-256 of the canonical config (model, params, seed, split settings, metrics, `cv_folds`, `time_ordered`, `time_gap`, `group_column`, preprocessing). The experiment label is not part of it. `1` and `1.0` hash differently. |
 | Every random choice | One seed in the config. Each purpose draws from its own generator, derived as SHA-256 of the seed and a purpose name, so adding a new use of randomness never shifts an existing one. |
 | The columns | The label and the ordered feature columns, recorded in the `columns_sha256` tag. |
 | The software | An environment fingerprint stored with the run (below). |
