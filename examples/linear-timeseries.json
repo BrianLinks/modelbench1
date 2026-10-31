@@ -1,0 +1,10 @@
+{
+  "experiment_id": "linear-timeseries",
+  "model": "linear_regression",
+  "seed": 7,
+  "dataset_id": "linear",
+  "metrics": ["rmse", "r2"],
+  "params": {},
+  "cv_folds": 4,
+  "time_ordered": true
+}

@@ -64,6 +64,23 @@ class ExampleTests(unittest.TestCase):
         self.assertEqual(set(data["metrics"]), {"accuracy", "f1", "balanced_accuracy"})
         self.assertGreater(data["metrics"]["accuracy"], 0.9)  # the clusters are well separated
 
+    def test_expanding_window_validation_of_the_linear_model(self):
+        code, out, err = self.cli(
+            "run",
+            self.example("linear-timeseries.json"),
+            "--data",
+            self.linear,
+            "--label",
+            "y",
+            "--json",
+        )
+        self.assertEqual((code, err), (0, ""))
+        data = json.loads(out)
+        self.assertEqual(
+            data["n_test"], 96
+        )  # 4 folds over 5 blocks of 24 rows; block 0 only trains
+        self.assertIn("rmse_std", data["metrics"])
+
     def test_cross_validate_the_forest(self):
         code, out, err = self.cli(
             "run",

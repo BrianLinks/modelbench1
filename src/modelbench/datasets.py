@@ -237,6 +237,43 @@ def kfold_indices(
     return result
 
 
+def ordered_split(n: int, test_fraction: float) -> tuple[list[int], list[int]]:
+    """Split rows 0..n-1 by position: the first rows train, the last `test_fraction` test.
+
+    The test set has max(1, min(n - 1, round(n * test_fraction))) rows, the same size rule as
+    `split_indices`. Nothing is shuffled, so the test rows always come after the training rows.
+    """
+    if isinstance(n, bool) or not isinstance(n, int) or n < 2:
+        raise DatasetError(f"need at least 2 rows to split, got {n!r}")
+    fraction = _check_fraction(test_fraction)
+    n_test = max(1, min(n - 1, round(n * fraction)))
+    return list(range(n - n_test)), list(range(n - n_test, n))
+
+
+def expanding_window_indices(n: int, folds: int) -> list[tuple[list[int], list[int]]]:
+    """Expanding-window splits for ordered rows: `folds` (train, test) pairs.
+
+    The rows are cut, in order, into folds + 1 contiguous blocks whose sizes differ by at most
+    one (the earlier blocks take the extra rows). Fold i trains on blocks 0..i and tests on block
+    i + 1, so every test row comes after every training row and the training set only grows.
+    """
+    if isinstance(n, bool) or not isinstance(n, int) or n < 2:
+        raise DatasetError(f"need at least 2 rows to split, got {n!r}")
+    if isinstance(folds, bool) or not isinstance(folds, int) or not 2 <= folds <= MAX_FOLDS:
+        raise DatasetError(f"folds must be a whole number from 2 to {MAX_FOLDS}, got {folds!r}")
+    blocks = folds + 1
+    if blocks > n:
+        raise DatasetError(f"cannot cut {n} rows into {blocks} blocks for {folds} folds")
+    size, extra = divmod(n, blocks)
+    edges = [0]
+    for block in range(blocks):
+        edges.append(edges[-1] + size + (1 if block < extra else 0))
+    return [
+        (list(range(edges[fold + 1])), list(range(edges[fold + 1], edges[fold + 2])))
+        for fold in range(folds)
+    ]
+
+
 def split_table(
     table: Table,
     test_fraction: float,

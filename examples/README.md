@@ -12,6 +12,7 @@ modelbench sample linear --seed 1 --rows 120 --noise 3 -o linear.csv
 
 modelbench run examples/knn.json --data blobs.csv --label label
 modelbench run examples/forest-cv.json --data blobs.csv --label label
+modelbench run examples/linear-timeseries.json --data linear.csv --label y
 modelbench sweep examples/knn-sweep.json --data blobs.csv --label label
 modelbench search examples/knn-search.json --data blobs.csv --label label
 modelbench halve examples/forest-halving.json --data blobs.csv --label label
@@ -27,6 +28,7 @@ modelbench serve
 | File | What it shows |
 |---|---|
 | `knn.json` | one experiment: a k-NN classifier with three metrics |
+| `linear-timeseries.json` | expanding-window validation of a linear model on rows kept in time order |
 | `forest-cv.json` | 5-fold stratified cross-validation of bagged trees; per-fold scores, mean and spread |
 | `knn-sweep.json` | a parameter grid, ranked |
 | `knn-search.json` | seeded random search over a range of `k` and a choice of weighting |

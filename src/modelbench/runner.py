@@ -20,7 +20,15 @@ from typing import Any
 from . import confusion
 from . import metrics as m
 from .config import ExperimentConfig
-from .datasets import DatasetVersion, Table, kfold_indices, make_version, split_indices
+from .datasets import (
+    DatasetVersion,
+    Table,
+    expanding_window_indices,
+    kfold_indices,
+    make_version,
+    ordered_split,
+    split_indices,
+)
 from .environment import environment_fingerprint
 from .errors import MetricError, RunnerError
 from .models import REGISTRY, REGRESSORS, create_model, create_regressor, model_kind
@@ -149,7 +157,12 @@ def load_folds(
         table, label_column, feature_columns, kind == "regression", config
     )
     labels_for_split = y if config.stratify else None
-    if config.cv_folds is None:
+    if config.time_ordered:
+        if config.cv_folds is None:
+            splits = [ordered_split(len(table), config.test_fraction)]
+        else:
+            splits = expanding_window_indices(len(table), config.cv_folds)
+    elif config.cv_folds is None:
         splits = [split_indices(len(table), config.test_fraction, config.seed, labels_for_split)]
     else:
         splits = kfold_indices(len(table), config.cv_folds, config.seed, labels_for_split)
@@ -282,12 +295,14 @@ def _execute(
             scores[name], scores[f"{name}_std"] = mean, std
         store.log_metrics(run_id, scores)
         n_train = max(len(f.train_y) for f in folds)
-        n_test = len(y_true)  # every row is tested exactly once
+        n_test = len(y_true)  # rows tested over all folds
         store.set_tag(run_id, "cv_folds", str(len(folds)))
     else:
         scores = evaluations[0].scores
         store.log_metrics(run_id, scores)
         n_train, n_test = len(folds[0].train_y), len(folds[0].test_y)
+    if config.time_ordered:
+        store.set_tag(run_id, "time_ordered", "true")
     store.set_tag(run_id, "n_train", str(n_train))
     store.set_tag(run_id, "n_test", str(n_test))
     if config.preprocess is not None:  # the width after encoding is not the number of columns

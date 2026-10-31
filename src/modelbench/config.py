@@ -56,6 +56,7 @@ _CONFIG_KEYS = {
     "test_fraction",
     "stratify",
     "cv_folds",
+    "time_ordered",
     "preprocess",
 }
 _REQUIRED_KEYS = ("experiment_id", "model", "seed", "dataset_id", "metrics")
@@ -102,6 +103,7 @@ class ExperimentConfig:
     test_fraction: float = 0.2
     stratify: bool = False
     cv_folds: int | None = None
+    time_ordered: bool = False
     preprocess: PreprocessSpec | None = None
 
     def __post_init__(self) -> None:
@@ -126,6 +128,12 @@ class ExperimentConfig:
             isinstance(folds, bool) or not isinstance(folds, int) or not 2 <= folds <= MAX_FOLDS
         ):
             raise ConfigError(f"cv_folds must be null or a whole number from 2 to {MAX_FOLDS}")
+        if not isinstance(self.time_ordered, bool):
+            raise ConfigError("time_ordered must be true or false")
+        if self.time_ordered and self.stratify:
+            raise ConfigError(
+                "time_ordered keeps rows in order; it cannot be combined with stratify"
+            )
         if self.preprocess is not None and not isinstance(self.preprocess, PreprocessSpec):
             raise ConfigError("preprocess must be a PreprocessSpec or null")
         if not isinstance(self.metrics, tuple) or not self.metrics:
@@ -154,6 +162,8 @@ class ExperimentConfig:
         }
         if self.cv_folds is not None:  # absent when unused, so older configs keep their hash
             data["cv_folds"] = self.cv_folds
+        if self.time_ordered:  # absent when unused, so older configs keep their hash
+            data["time_ordered"] = True
         if self.preprocess is not None:
             data["preprocess"] = self.preprocess.to_dict()
         return data
@@ -197,6 +207,7 @@ class ExperimentConfig:
             test_fraction=data.get("test_fraction", 0.2),
             stratify=data.get("stratify", False),
             cv_folds=data.get("cv_folds"),
+            time_ordered=data.get("time_ordered", False),
             preprocess=(
                 PreprocessSpec.from_dict(data["preprocess"])
                 if data.get("preprocess") is not None

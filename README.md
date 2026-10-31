@@ -500,6 +500,22 @@ single split. Rows are shuffled with the run's seed and dealt into folds (strati
   matrix is pooled over all folds, and `predictions.json` holds one entry per fold.
 - Reproducibility checks compare the predictions hash and the summary metrics.
 
+## Time-ordered data
+
+Shuffled splits leak the future into the past when rows are a time series. Set
+`"time_ordered": true` and the table's row order is the time order; nothing is shuffled and the
+seed plays no part in the split.
+
+- Without `cv_folds`, the first rows train and the last `test_fraction` of them test.
+- With `cv_folds` = k, the rows are cut in order into k + 1 contiguous blocks (sizes differ by at
+  most one, earlier blocks take the extra rows). Fold i trains on blocks 0 to i and tests on block
+  i + 1, an expanding window. Block 0 is only ever training data, so `n_test` is smaller than the
+  row count.
+- It cannot be combined with `stratify`, and `nested` and `select` refuse it rather than silently
+  shuffling. Preprocessing is fitted on each fold's training rows only, as always.
+- The flag is part of the config hash and sets a `time_ordered` tag. Reordering the rows changes
+  the dataset version, so a reshuffled file can never pass as the same data.
+
 ## Confusion matrices
 
 Every classification run records its test-split confusion matrix as the tag `confusion_matrix`

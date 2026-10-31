@@ -238,6 +238,8 @@ def run_nested(
 
     kind = model_kind(config.model)
     _check_metrics(config.metrics, kind)
+    if config.time_ordered:
+        raise SweepError("time_ordered is not supported here; these folds are shuffled")
     if kind == "regression" and config.stratify:
         raise SweepError("stratify applies to classification; regression has no classes")
     variants = [replace(config, params=dict(p)) for p in candidates]
