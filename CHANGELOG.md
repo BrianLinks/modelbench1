@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-31
+
+### Fixed
+- The README example test left its database open, which made its cleanup fail on Windows.
+
 ## [0.9.0] - 2026-10-31
 
 ### Added
