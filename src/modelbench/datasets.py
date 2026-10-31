@@ -237,26 +237,41 @@ def kfold_indices(
     return result
 
 
-def ordered_split(n: int, test_fraction: float) -> tuple[list[int], list[int]]:
+MAX_GAP = 10_000
+
+
+def _check_gap(gap: object) -> None:
+    if isinstance(gap, bool) or not isinstance(gap, int) or not 0 <= gap <= MAX_GAP:
+        raise DatasetError(f"gap must be a whole number from 0 to {MAX_GAP}, got {gap!r}")
+
+
+def ordered_split(n: int, test_fraction: float, gap: int = 0) -> tuple[list[int], list[int]]:
     """Split rows 0..n-1 by position: the first rows train, the last `test_fraction` test.
 
     The test set has max(1, min(n - 1, round(n * test_fraction))) rows, the same size rule as
     `split_indices`. Nothing is shuffled, so the test rows always come after the training rows.
+    The `gap` rows just before the test set are left out of training (and of testing), which keeps
+    features built from recent history, such as lags, from reaching across the boundary.
     """
+    _check_gap(gap)
     if isinstance(n, bool) or not isinstance(n, int) or n < 2:
         raise DatasetError(f"need at least 2 rows to split, got {n!r}")
     fraction = _check_fraction(test_fraction)
     n_test = max(1, min(n - 1, round(n * fraction)))
-    return list(range(n - n_test)), list(range(n - n_test, n))
+    if n - n_test - gap < 1:
+        raise DatasetError(f"a gap of {gap} rows leaves no training rows out of {n}")
+    return list(range(n - n_test - gap)), list(range(n - n_test, n))
 
 
-def expanding_window_indices(n: int, folds: int) -> list[tuple[list[int], list[int]]]:
+def expanding_window_indices(n: int, folds: int, gap: int = 0) -> list[tuple[list[int], list[int]]]:
     """Expanding-window splits for ordered rows: `folds` (train, test) pairs.
 
     The rows are cut, in order, into folds + 1 contiguous blocks whose sizes differ by at most
     one (the earlier blocks take the extra rows). Fold i trains on blocks 0..i and tests on block
     i + 1, so every test row comes after every training row and the training set only grows.
+    The last `gap` rows before each test block are dropped from training.
     """
+    _check_gap(gap)
     if isinstance(n, bool) or not isinstance(n, int) or n < 2:
         raise DatasetError(f"need at least 2 rows to split, got {n!r}")
     if isinstance(folds, bool) or not isinstance(folds, int) or not 2 <= folds <= MAX_FOLDS:
@@ -268,8 +283,10 @@ def expanding_window_indices(n: int, folds: int) -> list[tuple[list[int], list[i
     edges = [0]
     for block in range(blocks):
         edges.append(edges[-1] + size + (1 if block < extra else 0))
+    if edges[1] - gap < 1:
+        raise DatasetError(f"a gap of {gap} rows leaves the first fold no training rows")
     return [
-        (list(range(edges[fold + 1])), list(range(edges[fold + 1], edges[fold + 2])))
+        (list(range(edges[fold + 1] - gap)), list(range(edges[fold + 1], edges[fold + 2])))
         for fold in range(folds)
     ]
 

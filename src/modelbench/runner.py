@@ -159,9 +159,9 @@ def load_folds(
     labels_for_split = y if config.stratify else None
     if config.time_ordered:
         if config.cv_folds is None:
-            splits = [ordered_split(len(table), config.test_fraction)]
+            splits = [ordered_split(len(table), config.test_fraction, config.time_gap)]
         else:
-            splits = expanding_window_indices(len(table), config.cv_folds)
+            splits = expanding_window_indices(len(table), config.cv_folds, config.time_gap)
     elif config.cv_folds is None:
         splits = [split_indices(len(table), config.test_fraction, config.seed, labels_for_split)]
     else:

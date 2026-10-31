@@ -43,6 +43,7 @@ KNOWN_METRICS = (
     "r2",
 )
 MAX_GRID_SIZE = 10_000
+MAX_TIME_GAP = 10_000
 _MAX_DEPTH = 16
 _VERSION_RE = re.compile(r"[0-9a-f]{12}")
 _CONFIG_KEYS = {
@@ -57,6 +58,7 @@ _CONFIG_KEYS = {
     "stratify",
     "cv_folds",
     "time_ordered",
+    "time_gap",
     "preprocess",
 }
 _REQUIRED_KEYS = ("experiment_id", "model", "seed", "dataset_id", "metrics")
@@ -104,6 +106,7 @@ class ExperimentConfig:
     stratify: bool = False
     cv_folds: int | None = None
     time_ordered: bool = False
+    time_gap: int = 0
     preprocess: PreprocessSpec | None = None
 
     def __post_init__(self) -> None:
@@ -134,6 +137,11 @@ class ExperimentConfig:
             raise ConfigError(
                 "time_ordered keeps rows in order; it cannot be combined with stratify"
             )
+        gap = self.time_gap
+        if isinstance(gap, bool) or not isinstance(gap, int) or not 0 <= gap <= MAX_TIME_GAP:
+            raise ConfigError(f"time_gap must be a whole number from 0 to {MAX_TIME_GAP}")
+        if gap and not self.time_ordered:
+            raise ConfigError("time_gap only applies when time_ordered is true")
         if self.preprocess is not None and not isinstance(self.preprocess, PreprocessSpec):
             raise ConfigError("preprocess must be a PreprocessSpec or null")
         if not isinstance(self.metrics, tuple) or not self.metrics:
@@ -164,6 +172,8 @@ class ExperimentConfig:
             data["cv_folds"] = self.cv_folds
         if self.time_ordered:  # absent when unused, so older configs keep their hash
             data["time_ordered"] = True
+        if self.time_gap:
+            data["time_gap"] = self.time_gap
         if self.preprocess is not None:
             data["preprocess"] = self.preprocess.to_dict()
         return data
@@ -208,6 +218,7 @@ class ExperimentConfig:
             stratify=data.get("stratify", False),
             cv_folds=data.get("cv_folds"),
             time_ordered=data.get("time_ordered", False),
+            time_gap=data.get("time_gap", 0),
             preprocess=(
                 PreprocessSpec.from_dict(data["preprocess"])
                 if data.get("preprocess") is not None

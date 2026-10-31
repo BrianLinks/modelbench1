@@ -6,6 +6,7 @@ from pathlib import Path
 from modelbench.config import ExperimentConfig
 from modelbench.datasets import (
     MAX_FOLDS,
+    MAX_GAP,
     Table,
     expanding_window_indices,
     ordered_split,
@@ -263,6 +264,64 @@ class OtherCommandsRefuseTests(unittest.TestCase):
         with self.assertRaises(SweepError) as raised:
             run_selection(cfg, table, "label", folds=3)
         self.assertIn("time_ordered", str(raised.exception))
+
+
+class GapTests(unittest.TestCase):
+    def test_ordered_split_by_hand(self):
+        # 10 rows, 2 test rows (8, 9); a gap of 3 drops rows 5, 6, 7 from training
+        self.assertEqual(ordered_split(10, 0.2, gap=3), ([0, 1, 2, 3, 4], [8, 9]))
+        self.assertEqual(ordered_split(10, 0.2, gap=0), ordered_split(10, 0.2))
+
+    def test_expanding_window_by_hand(self):
+        # 12 rows, 3 folds, blocks of 3; a gap of 2 drops the last 2 rows before each test block
+        self.assertEqual(
+            expanding_window_indices(12, 3, gap=2),
+            [([0], [3, 4, 5]), ([0, 1, 2, 3], [6, 7, 8]), (list(range(7)), [9, 10, 11])],
+        )
+
+    def test_the_gap_rows_are_in_neither_set(self):
+        for gap in (1, 2, 5):
+            for train, test in expanding_window_indices(40, 4, gap=gap):
+                self.assertEqual(test[0] - train[-1] - 1, gap)
+
+    def test_gap_that_leaves_no_training_rows_is_an_error(self):
+        with self.assertRaises(DatasetError):
+            ordered_split(10, 0.2, gap=8)
+        with self.assertRaises(DatasetError):
+            expanding_window_indices(12, 3, gap=3)
+        self.assertEqual(len(expanding_window_indices(12, 3, gap=2)), 3)
+        for bad in (-1, True, 1.0, MAX_GAP + 1):
+            with self.subTest(bad=bad), self.assertRaises(DatasetError):
+                ordered_split(100, 0.2, gap=bad)
+            with self.subTest(bad=bad), self.assertRaises(DatasetError):
+                expanding_window_indices(100, 3, gap=bad)
+
+    def test_config_hash_dict_and_validation(self):
+        base = make(time_ordered=True)
+        self.assertNotIn("time_gap", base.to_dict())
+        gapped = make(time_ordered=True, time_gap=3)
+        self.assertEqual(gapped.to_dict()["time_gap"], 3)
+        self.assertNotEqual(gapped.config_hash(), base.config_hash())
+        self.assertEqual(ExperimentConfig.from_dict(gapped.to_dict()), gapped)
+        for bad in (-1, True, 2.0, "3", 10_001):
+            with self.subTest(bad=bad), self.assertRaises(ConfigError):
+                make(time_ordered=True, time_gap=bad)
+        with self.assertRaises(ConfigError):
+            make(time_gap=2)
+
+    def test_load_folds_and_run_use_the_gap(self):
+        table = drifting(40)
+        (fold,) = load_folds(make(time_ordered=True, time_gap=4), table, "label", None)
+        self.assertEqual(len(fold.train_y), 28)  # 40 - 8 test - 4 gap
+        self.assertEqual(fold.test_idx, list(range(32, 40)))
+        folds = load_folds(make(time_ordered=True, time_gap=2, cv_folds=4), table, "label", None)
+        self.assertEqual([len(f.train_y) for f in folds], [6, 14, 22, 30])
+        store = Store(":memory:")
+        self.addCleanup(store.close)
+        result = run_experiment(
+            store, make(time_ordered=True, time_gap=4), table, "label", environment=ENV
+        )
+        self.assertEqual((result.n_train, result.n_test), (28, 8))
 
 
 if __name__ == "__main__":

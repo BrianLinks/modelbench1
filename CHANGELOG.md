@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- `time_gap` config setting: rows left out of training just before each test set of a
+  time-ordered split, for features that look back over recent rows.
+
 ## [0.7.0] - 2026-10-31
 
 ### Added

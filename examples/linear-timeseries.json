@@ -6,5 +6,6 @@
   "metrics": ["rmse", "r2"],
   "params": {},
   "cv_folds": 4,
-  "time_ordered": true
+  "time_ordered": true,
+  "time_gap": 2
 }
