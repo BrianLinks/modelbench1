@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from modelbench.store import Store
+
 ROOT = Path(__file__).resolve().parent.parent
 FENCE = re.compile(r"^```python\n(.*?)^```", re.S | re.M)
 
@@ -17,8 +19,11 @@ def python_blocks(path):
     return [(text[: m.start()].count("\n") + 2, m.group(1)) for m in FENCE.finditer(text)]
 
 
-def run_blocks(path):
-    """Run a file's blocks in order in one namespace and one empty folder; return the output."""
+def run_blocks(path, inspect=None):
+    """Run a file's blocks in order in one namespace and one empty folder; return the output.
+
+    `inspect(namespace)` runs after the last block while the folder and any open store still exist.
+    """
     namespace = {"__name__": "__docs__"}
     output = io.StringIO()
     previous = os.getcwd()
@@ -33,7 +38,12 @@ def run_blocks(path):
                     raise AssertionError(
                         f"{path.name} line {line}: {type(exc).__name__}: {exc}"
                     ) from exc
+            if inspect is not None:
+                inspect(namespace)
         finally:
+            for value in namespace.values():  # Windows cannot delete a database that is open
+                if isinstance(value, Store):
+                    value.close()
             os.chdir(previous)
     return namespace, output.getvalue()
 
@@ -48,12 +58,15 @@ class DocumentedExamplesTests(unittest.TestCase):
     def test_the_readme_python_blocks_run_in_order(self):
         blocks = python_blocks(ROOT / "README.md")
         self.assertGreaterEqual(len(blocks), 6)
-        namespace, output = run_blocks(ROOT / "README.md")
+        seen = {}
+
+        def inspect(namespace):
+            seen["metrics"] = namespace["store"].final_metrics("run-000001")
+
+        namespace, output = run_blocks(ROOT / "README.md", inspect)
         # the values the README quotes in comments
         self.assertEqual(namespace["run_id"], "run-000001")
-        self.assertEqual(
-            namespace["store"].final_metrics("run-000001"), {"accuracy": 1.0, "f1": 1.0}
-        )
+        self.assertEqual(seen["metrics"], {"accuracy": 1.0, "f1": 1.0})
         self.assertEqual(namespace["report"].verdict, "reproduced")
         self.assertFalse(namespace["report"].explained_by_environment)
         self.assertEqual(namespace["model"].predict([[0.5], [10.5]]), ["a", "b"])
